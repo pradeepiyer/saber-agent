@@ -8,5 +8,8 @@
   "venvPath": ".",
   "venv": ".venv",
   "typeCheckingMode": "strict",
-  "reportMissingTypeStubs": false
+  "reportMissingTypeStubs": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownArgumentType": false
 }

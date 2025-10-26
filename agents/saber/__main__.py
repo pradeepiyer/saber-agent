@@ -7,7 +7,6 @@ import asyncio
 import sys
 
 import uvicorn
-
 from agent_kit.api.console import run_console
 from agent_kit.config import setup_configuration
 from agent_kit.utils import set_app_name

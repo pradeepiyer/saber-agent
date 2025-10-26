@@ -2,9 +2,8 @@
 
 from typing import cast
 
-from rich.console import Console
-
 from agent_kit.api.console.server import SlashCommands
+
 from agents.saber.agent import SaberAgent
 
 

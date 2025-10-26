@@ -1,20 +1,19 @@
 """Baseball statistics tools for Saber Agent."""
 
 import logging
-from typing import Any
+from typing import Any, cast
 
-import pandas as pd
 import statsapi
+from pandas import DataFrame
 from pybaseball import (
     batting_stats,
     pitching_stats,
     playerid_lookup,
     schedule_and_record,
     standings,
-    statcast,
     statcast_batter,
-    statcast_batter_expected_stats,
     statcast_batter_exitvelo_barrels,
+    statcast_batter_expected_stats,
     statcast_batter_percentile_ranks,
     statcast_batter_pitch_arsenal,
     statcast_catcher_framing,
@@ -24,8 +23,8 @@ from pybaseball import (
     statcast_outfielder_jump,
     statcast_outs_above_average,
     statcast_pitcher,
-    statcast_pitcher_expected_stats,
     statcast_pitcher_exitvelo_barrels,
+    statcast_pitcher_expected_stats,
     statcast_pitcher_percentile_ranks,
     statcast_pitcher_spin_dir_comp,
 )
@@ -60,14 +59,14 @@ async def lookup_player(name: str) -> dict[str, Any]:
         first_name = ""
 
     # Check pybaseball (MLB + Negro League)
-    mlb_df = playerid_lookup(last_name, first_name)
+    mlb_df: DataFrame = playerid_lookup(last_name, first_name)
     if not mlb_df.empty:
         results["mlb_results"] = mlb_df.to_dict("records")
         results["status"] = "found"
         logger.info(f"Found {len(mlb_df)} MLB/Negro League matches for '{name}'")
 
     # Check MLB-StatsAPI (minor league players)
-    minor_matches = statsapi.lookup_player(name)
+    minor_matches: list[dict[str, Any]] = cast(list[dict[str, Any]], statsapi.lookup_player(name))
     if minor_matches:
         results["minor_results"] = minor_matches
         results["status"] = "found"
@@ -94,10 +93,10 @@ async def get_player_batting_stats(
         Dictionary with batting statistics
     """
     # Fetch batting stats for the season range
-    stats_df = batting_stats(start_season, end_season, league=league)
+    stats_df: DataFrame = batting_stats(start_season, end_season, league=league)
 
     # Filter by player name
-    player_stats = stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)]
+    player_stats = cast(DataFrame, stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)])
 
     if player_stats.empty:
         return {"error": f"No batting stats found for {player_name} ({start_season}-{end_season})"}
@@ -121,10 +120,10 @@ async def get_player_pitching_stats(
         Dictionary with pitching statistics
     """
     # Fetch pitching stats for the season range
-    stats_df = pitching_stats(start_season, end_season, league=league)
+    stats_df: DataFrame = pitching_stats(start_season, end_season, league=league)
 
     # Filter by player name
-    player_stats = stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)]
+    player_stats = cast(DataFrame, stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)])
 
     if player_stats.empty:
         return {"error": f"No pitching stats found for {player_name} ({start_season}-{end_season})"}
@@ -179,7 +178,7 @@ async def get_minor_league_stats(player_id: int, level: str, season: int) -> dic
         return {"error": f"Invalid level: {level}. Must be one of {list(sport_ids.keys())}"}
 
     # Fetch player stats using statsapi
-    stats = statsapi.player_stat_data(player_id, group="[hitting,pitching]", type="season", sportId=sport_id, season=season)
+    stats: dict[str, Any] = cast(dict[str, Any], statsapi.player_stat_data(player_id, group="[hitting,pitching]", type="season", sportId=sport_id, season=season))
 
     return {"player_id": player_id, "level": level, "season": season, "stats": stats}
 
@@ -199,7 +198,7 @@ async def get_player_progression(player_name: str) -> dict[str, Any]:
     if lookup_result["status"] == "not_found":
         return {"error": f"Player '{player_name}' not found"}
 
-    progression = {"player_name": player_name, "mlb_stats": [], "minor_league_stats": []}
+    progression: dict[str, Any] = {"player_name": player_name, "mlb_stats": [], "minor_league_stats": []}
 
     # Get MLB career stats if available
     if lookup_result["mlb_results"]:
@@ -233,7 +232,7 @@ async def get_statcast_batter(player_id: int, start_date: str, end_date: str) ->
     Returns:
         Dictionary with Statcast batting data
     """
-    stats_df = statcast_batter(start_date, end_date, player_id)
+    stats_df: DataFrame = statcast_batter(start_date, end_date, player_id)
 
     if stats_df.empty:
         return {"error": f"No Statcast data found for player {player_id} ({start_date} to {end_date})"}
@@ -265,7 +264,7 @@ async def get_statcast_pitcher(player_id: int, start_date: str, end_date: str) -
     Returns:
         Dictionary with Statcast pitching data
     """
-    stats_df = statcast_pitcher(start_date, end_date, player_id)
+    stats_df: DataFrame = statcast_pitcher(start_date, end_date, player_id)
 
     if stats_df.empty:
         return {"error": f"No Statcast data found for pitcher {player_id} ({start_date} to {end_date})"}
@@ -286,76 +285,201 @@ async def get_statcast_pitcher(player_id: int, start_date: str, end_date: str) -
     }
 
 
-async def get_statcast_batter_advanced(
-    player_id: int, year: int, metric_type: str, min_pa: int | None = None
-) -> dict[str, Any]:
-    """Get advanced Statcast batting metrics for a season.
+async def get_statcast_batter_exitvelo_barrels(player_id: int, year: int, min_bbe: int = 25) -> dict[str, Any]:
+    """Get Statcast exit velocity and barrel data for a batter.
 
     Args:
         player_id: MLB Advanced Media player ID
-        year: Season year
-        metric_type: Type of metric - "exitvelo_barrels", "expected_stats", "percentile_ranks", "pitch_arsenal"
-        min_pa: Minimum plate appearances (optional, defaults vary by metric)
+        year: Season year (2015+)
+        min_bbe: Minimum batted ball events (default: 25)
 
     Returns:
-        Dictionary with advanced Statcast batting data
+        Dictionary with exit velocity and barrel statistics
     """
-    if metric_type == "exitvelo_barrels":
-        stats_df = statcast_batter_exitvelo_barrels(year, min_pa or 25)
-    elif metric_type == "expected_stats":
-        stats_df = statcast_batter_expected_stats(year, min_pa or 25)
-    elif metric_type == "percentile_ranks":
-        stats_df = statcast_batter_percentile_ranks(year)
-    elif metric_type == "pitch_arsenal":
-        stats_df = statcast_batter_pitch_arsenal(year, min_pa or 25)
-    else:
-        return {"error": f"Invalid metric_type: {metric_type}"}
+    stats_df: DataFrame = statcast_batter_exitvelo_barrels(year, min_bbe)
 
-    # Filter to specific player if data contains player_id column
+    # Filter to specific player
     if "player_id" in stats_df.columns:
-        player_stats = stats_df[stats_df["player_id"] == player_id]
+        player_stats = cast(DataFrame, stats_df[stats_df["player_id"] == player_id])
         if player_stats.empty:
-            return {"error": f"No {metric_type} data found for player {player_id} in {year}"}
-        return {"player_id": player_id, "year": year, "metric_type": metric_type, "data": player_stats.to_dict("records")}
+            return {"error": f"No exit velocity/barrel data found for player {player_id} in {year}"}
+        return {"player_id": player_id, "year": year, "data": player_stats.to_dict("records")}
 
     # Return league-wide data if no player_id column
-    return {"year": year, "metric_type": metric_type, "data": stats_df.to_dict("records")}
+    return {"year": year, "data": stats_df.to_dict("records")}
 
 
-async def get_statcast_pitcher_advanced(
-    player_id: int, year: int, metric_type: str, min_pa: int | None = None
-) -> dict[str, Any]:
-    """Get advanced Statcast pitching metrics for a season.
+async def get_statcast_batter_expected_stats(player_id: int, year: int, min_pa: int = 25) -> dict[str, Any]:
+    """Get Statcast expected statistics (xBA, xSLG, xwOBA) for a batter.
 
     Args:
         player_id: MLB Advanced Media player ID
-        year: Season year
-        metric_type: Type of metric - "exitvelo_barrels", "expected_stats", "percentile_ranks", "spin_comparison"
-        min_pa: Minimum plate appearances (optional, defaults vary by metric)
+        year: Season year (2015+)
+        min_pa: Minimum plate appearances (default: 25)
 
     Returns:
-        Dictionary with advanced Statcast pitching data
+        Dictionary with expected statistics
     """
-    if metric_type == "exitvelo_barrels":
-        stats_df = statcast_pitcher_exitvelo_barrels(year, min_pa or 25)
-    elif metric_type == "expected_stats":
-        stats_df = statcast_pitcher_expected_stats(year, min_pa or 25)
-    elif metric_type == "percentile_ranks":
-        stats_df = statcast_pitcher_percentile_ranks(year)
-    elif metric_type == "spin_comparison":
-        stats_df = statcast_pitcher_spin_dir_comp(year)
-    else:
-        return {"error": f"Invalid metric_type: {metric_type}"}
+    stats_df: DataFrame = statcast_batter_expected_stats(year, min_pa)
 
-    # Filter to specific player if data contains player_id column
+    # Filter to specific player
     if "player_id" in stats_df.columns:
-        player_stats = stats_df[stats_df["player_id"] == player_id]
+        player_stats = cast(DataFrame, stats_df[stats_df["player_id"] == player_id])
         if player_stats.empty:
-            return {"error": f"No {metric_type} data found for player {player_id} in {year}"}
-        return {"player_id": player_id, "year": year, "metric_type": metric_type, "data": player_stats.to_dict("records")}
+            return {"error": f"No expected stats found for player {player_id} in {year}"}
+        return {"player_id": player_id, "year": year, "data": player_stats.to_dict("records")}
 
     # Return league-wide data if no player_id column
-    return {"year": year, "metric_type": metric_type, "data": stats_df.to_dict("records")}
+    return {"year": year, "data": stats_df.to_dict("records")}
+
+
+async def get_statcast_batter_percentile_ranks(player_id: int, year: int) -> dict[str, Any]:
+    """Get Statcast percentile rankings for a batter (sprint speed, exit velo, etc.).
+
+    Args:
+        player_id: MLB Advanced Media player ID
+        year: Season year (2015+)
+
+    Returns:
+        Dictionary with percentile rankings across all Statcast metrics
+    """
+    stats_df: DataFrame = statcast_batter_percentile_ranks(year)
+
+    # Filter to specific player
+    if "player_id" in stats_df.columns:
+        player_stats = cast(DataFrame, stats_df[stats_df["player_id"] == player_id])
+        if player_stats.empty:
+            return {"error": f"No percentile ranks found for player {player_id} in {year}"}
+        return {"player_id": player_id, "year": year, "data": player_stats.to_dict("records")}
+
+    # Return league-wide data if no player_id column
+    return {"year": year, "data": stats_df.to_dict("records")}
+
+
+async def get_statcast_batter_pitch_arsenal(player_id: int, year: int, min_pa: int = 25) -> dict[str, Any]:
+    """Get batter's performance against different pitch types.
+
+    Args:
+        player_id: MLB Advanced Media player ID
+        year: Season year (2015+)
+        min_pa: Minimum plate appearances (default: 25)
+
+    Returns:
+        Dictionary with performance breakdown by pitch type
+    """
+    stats_df: DataFrame = statcast_batter_pitch_arsenal(year, min_pa)
+
+    # Filter to specific player
+    if "player_id" in stats_df.columns:
+        player_stats = cast(DataFrame, stats_df[stats_df["player_id"] == player_id])
+        if player_stats.empty:
+            return {"error": f"No pitch arsenal data found for player {player_id} in {year}"}
+        return {"player_id": player_id, "year": year, "data": player_stats.to_dict("records")}
+
+    # Return league-wide data if no player_id column
+    return {"year": year, "data": stats_df.to_dict("records")}
+
+
+async def get_statcast_pitcher_exitvelo_barrels(player_id: int, year: int, min_bbe: int = 25) -> dict[str, Any]:
+    """Get Statcast exit velocity and barrels allowed by a pitcher.
+
+    Args:
+        player_id: MLB Advanced Media player ID
+        year: Season year (2015+)
+        min_bbe: Minimum batted ball events (default: 25)
+
+    Returns:
+        Dictionary with exit velocity and barrels allowed
+    """
+    stats_df: DataFrame = statcast_pitcher_exitvelo_barrels(year, min_bbe)
+
+    # Filter to specific player
+    if "player_id" in stats_df.columns:
+        player_stats = cast(DataFrame, stats_df[stats_df["player_id"] == player_id])
+        if player_stats.empty:
+            return {"error": f"No exit velocity/barrel data found for pitcher {player_id} in {year}"}
+        return {"player_id": player_id, "year": year, "data": player_stats.to_dict("records")}
+
+    # Return league-wide data if no player_id column
+    return {"year": year, "data": stats_df.to_dict("records")}
+
+
+async def get_statcast_pitcher_expected_stats(player_id: int, year: int, min_pa: int = 25) -> dict[str, Any]:
+    """Get Statcast expected statistics allowed (xBA, xSLG, xwOBA) for a pitcher.
+
+    Args:
+        player_id: MLB Advanced Media player ID
+        year: Season year (2015+)
+        min_pa: Minimum plate appearances (default: 25)
+
+    Returns:
+        Dictionary with expected statistics allowed
+    """
+    stats_df: DataFrame = statcast_pitcher_expected_stats(year, min_pa)
+
+    # Filter to specific player
+    if "player_id" in stats_df.columns:
+        player_stats = cast(DataFrame, stats_df[stats_df["player_id"] == player_id])
+        if player_stats.empty:
+            return {"error": f"No expected stats found for pitcher {player_id} in {year}"}
+        return {"player_id": player_id, "year": year, "data": player_stats.to_dict("records")}
+
+    # Return league-wide data if no player_id column
+    return {"year": year, "data": stats_df.to_dict("records")}
+
+
+async def get_statcast_pitcher_percentile_ranks(player_id: int, year: int) -> dict[str, Any]:
+    """Get Statcast percentile rankings for a pitcher (velocity, spin rate, etc.).
+
+    Args:
+        player_id: MLB Advanced Media player ID
+        year: Season year (2015+)
+
+    Returns:
+        Dictionary with percentile rankings across all Statcast pitching metrics
+    """
+    stats_df: DataFrame = statcast_pitcher_percentile_ranks(year)
+
+    # Filter to specific player
+    if "player_id" in stats_df.columns:
+        player_stats = cast(DataFrame, stats_df[stats_df["player_id"] == player_id])
+        if player_stats.empty:
+            return {"error": f"No percentile ranks found for pitcher {player_id} in {year}"}
+        return {"player_id": player_id, "year": year, "data": player_stats.to_dict("records")}
+
+    # Return league-wide data if no player_id column
+    return {"year": year, "data": stats_df.to_dict("records")}
+
+
+async def get_statcast_pitcher_spin_comparison(
+    player_id: int, year: int, pitch_a: str = "FF", pitch_b: str = "CH", min_pitches: int = 100
+) -> dict[str, Any]:
+    """Compare spin direction/movement between two pitch types for a pitcher.
+
+    Args:
+        player_id: MLB Advanced Media player ID
+        year: Season year (2015+)
+        pitch_a: First pitch type to compare (default: "FF" = 4-seam fastball)
+        pitch_b: Second pitch type to compare (default: "CH" = changeup)
+        min_pitches: Minimum pitches thrown (default: 100)
+
+    Common pitch types: FF (4-seam), SI (sinker), FC (cutter), SL (slider),
+                        CU (curveball), CH (changeup), FS (splitter), KN (knuckle)
+
+    Returns:
+        Dictionary with spin comparison data
+    """
+    stats_df: DataFrame = statcast_pitcher_spin_dir_comp(year, pitch_a, pitch_b, min_pitches)
+
+    # Filter to specific player
+    if "player_id" in stats_df.columns:
+        player_stats = cast(DataFrame, stats_df[stats_df["player_id"] == player_id])
+        if player_stats.empty:
+            return {"error": f"No spin comparison data found for pitcher {player_id} in {year}"}
+        return {"player_id": player_id, "year": year, "pitch_a": pitch_a, "pitch_b": pitch_b, "data": player_stats.to_dict("records")}
+
+    # Return league-wide data if no player_id column
+    return {"year": year, "pitch_a": pitch_a, "pitch_b": pitch_b, "data": stats_df.to_dict("records")}
 
 
 async def get_fielding_stats(
@@ -372,6 +496,7 @@ async def get_fielding_stats(
     Returns:
         Dictionary with fielding data
     """
+    stats_df: DataFrame
     if metric_type == "oaa":
         stats_df = statcast_outs_above_average(year, position or "all", min_attempts)
     elif metric_type == "outfield_directional":
@@ -390,23 +515,6 @@ async def get_fielding_stats(
     return {"year": year, "metric_type": metric_type, "position": position, "data": stats_df.to_dict("records")}
 
 
-async def get_game_statcast(game_id: str) -> dict[str, Any]:
-    """Get full pitch-level Statcast data for a single game.
-
-    Args:
-        game_id: MLB Advanced Media game ID
-
-    Returns:
-        Dictionary with complete game Statcast data
-    """
-    stats_df = statcast(game_pk=game_id)
-
-    if stats_df.empty:
-        return {"error": f"No Statcast data found for game {game_id}"}
-
-    return {"game_id": game_id, "pitch_count": len(stats_df), "data": stats_df.to_dict("records")}
-
-
 # ========== Team Statistics ==========
 
 
@@ -420,10 +528,10 @@ async def get_team_standings(season: int, division: str | None = None) -> dict[s
     Returns:
         Dictionary with standings data
     """
-    standings_data = standings(season)
+    standings_data: list[DataFrame] = cast(list[DataFrame], standings(season))
 
     # standings() returns a list of 6 dataframes (one per division)
-    all_standings = []
+    all_standings: list[dict[str, Any]] = []
     for idx, div_df in enumerate(standings_data):
         if not div_df.empty:
             div_name = div_df.columns[0] if len(div_df.columns) > 0 else f"Division_{idx}"
@@ -447,6 +555,7 @@ async def get_team_stats(team_abbr: str, season: int, stat_type: str = "batting"
     Returns:
         Dictionary with team statistics
     """
+    stats_df: DataFrame
     if stat_type == "batting":
         stats_df = batting_stats(season, season)
     elif stat_type == "pitching":
@@ -456,7 +565,7 @@ async def get_team_stats(team_abbr: str, season: int, stat_type: str = "batting"
 
     # Filter by team if Team column exists
     if "Team" in stats_df.columns:
-        team_stats = stats_df[stats_df["Team"].str.contains(team_abbr, case=False, na=False)]
+        team_stats = cast(DataFrame, stats_df[stats_df["Team"].str.contains(team_abbr, case=False, na=False)])
         return {"team": team_abbr, "season": season, "type": stat_type, "stats": team_stats.to_dict("records")}
     else:
         return {"error": "Team information not available in stats data"}
@@ -472,7 +581,7 @@ async def get_team_schedule(team_abbr: str, season: int) -> dict[str, Any]:
     Returns:
         Dictionary with schedule and game results
     """
-    schedule_df = schedule_and_record(season, team_abbr)
+    schedule_df: DataFrame = schedule_and_record(season, team_abbr)
 
     if schedule_df.empty:
         return {"error": f"No schedule found for {team_abbr} in {season}"}
@@ -492,7 +601,7 @@ async def get_game_boxscore(game_id: str) -> dict[str, Any]:
     Returns:
         Dictionary with box score data
     """
-    boxscore = statsapi.boxscore(game_id)
+    boxscore: str = cast(str, statsapi.boxscore(game_id))
     return {"game_id": game_id, "boxscore": boxscore}
 
 
@@ -518,7 +627,7 @@ async def compare_players(player_names: list[str], seasons: str, stat_categories
         start_season = end_season = int(seasons)
 
     # Fetch stats for each player
-    comparisons = []
+    comparisons: list[dict[str, Any]] = []
     for player_name in player_names:
         batting = await get_player_batting_stats(player_name, start_season, end_season)
         pitching = await get_player_pitching_stats(player_name, start_season, end_season)
@@ -545,9 +654,9 @@ async def get_league_leaders(season: int, stat_category: str, league: str = "MLB
     pybb_league = league_map.get(league, "all")
 
     # Try batting stats first
-    batting_df = batting_stats(season, season, league=pybb_league)
+    batting_df: DataFrame = batting_stats(season, season, league=pybb_league)
     if stat_category in batting_df.columns:
-        leaders = batting_df.nlargest(limit, stat_category)
+        leaders: DataFrame = batting_df.nlargest(limit, stat_category)
         return {
             "season": season,
             "stat": stat_category,
@@ -557,9 +666,10 @@ async def get_league_leaders(season: int, stat_category: str, league: str = "MLB
         }
 
     # Try pitching stats
-    pitching_df = pitching_stats(season, season, league=pybb_league)
+    pitching_df: DataFrame = pitching_stats(season, season, league=pybb_league)
     if stat_category in pitching_df.columns:
         # For ERA and WHIP, we want smallest (use nsmallest)
+        leaders: DataFrame
         if stat_category in ["ERA", "WHIP", "FIP"]:
             leaders = pitching_df.nsmallest(limit, stat_category)
         else:
@@ -716,46 +826,114 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "type": "function",
-            "name": "get_statcast_batter_advanced",
-            "description": "Get advanced Statcast batting metrics for a season (2015+). Includes exit velocity, barrels, expected stats, percentile ranks, and pitch arsenal data.",
+            "name": "get_statcast_batter_exitvelo_barrels",
+            "description": "Get Statcast exit velocity and barrel data for a batter (2015+).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
                     "year": {"type": "integer", "description": "Season year (2015 or later)"},
-                    "metric_type": {
-                        "type": "string",
-                        "description": "Type of advanced metric",
-                        "enum": ["exitvelo_barrels", "expected_stats", "percentile_ranks", "pitch_arsenal"],
-                    },
-                    "min_pa": {
-                        "type": "integer",
-                        "description": "Minimum plate appearances (optional, default 25 for most metrics)",
-                    },
+                    "min_bbe": {"type": "integer", "description": "Minimum batted ball events (default: 25)"},
                 },
-                "required": ["player_id", "year", "metric_type"],
+                "required": ["player_id", "year"],
             },
         },
         {
             "type": "function",
-            "name": "get_statcast_pitcher_advanced",
-            "description": "Get advanced Statcast pitching metrics for a season (2015+). Includes exit velocity allowed, expected stats, percentile ranks, active spin, and spin comparisons.",
+            "name": "get_statcast_batter_expected_stats",
+            "description": "Get Statcast expected statistics (xBA, xSLG, xwOBA) for a batter (2015+).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
                     "year": {"type": "integer", "description": "Season year (2015 or later)"},
-                    "metric_type": {
-                        "type": "string",
-                        "description": "Type of advanced metric",
-                        "enum": ["exitvelo_barrels", "expected_stats", "percentile_ranks", "spin_comparison"],
-                    },
-                    "min_pa": {
-                        "type": "integer",
-                        "description": "Minimum plate appearances (optional, default 25 for most metrics)",
-                    },
+                    "min_pa": {"type": "integer", "description": "Minimum plate appearances (default: 25)"},
                 },
-                "required": ["player_id", "year", "metric_type"],
+                "required": ["player_id", "year"],
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_statcast_batter_percentile_ranks",
+            "description": "Get Statcast percentile rankings for a batter across all metrics (2015+).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
+                    "year": {"type": "integer", "description": "Season year (2015 or later)"},
+                },
+                "required": ["player_id", "year"],
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_statcast_batter_pitch_arsenal",
+            "description": "Get batter's performance against different pitch types (2015+).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
+                    "year": {"type": "integer", "description": "Season year (2015 or later)"},
+                    "min_pa": {"type": "integer", "description": "Minimum plate appearances (default: 25)"},
+                },
+                "required": ["player_id", "year"],
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_statcast_pitcher_exitvelo_barrels",
+            "description": "Get Statcast exit velocity and barrels allowed by a pitcher (2015+).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
+                    "year": {"type": "integer", "description": "Season year (2015 or later)"},
+                    "min_bbe": {"type": "integer", "description": "Minimum batted ball events (default: 25)"},
+                },
+                "required": ["player_id", "year"],
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_statcast_pitcher_expected_stats",
+            "description": "Get Statcast expected statistics allowed (xBA, xSLG, xwOBA) for a pitcher (2015+).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
+                    "year": {"type": "integer", "description": "Season year (2015 or later)"},
+                    "min_pa": {"type": "integer", "description": "Minimum plate appearances (default: 25)"},
+                },
+                "required": ["player_id", "year"],
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_statcast_pitcher_percentile_ranks",
+            "description": "Get Statcast percentile rankings for a pitcher across all metrics (2015+).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
+                    "year": {"type": "integer", "description": "Season year (2015 or later)"},
+                },
+                "required": ["player_id", "year"],
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_statcast_pitcher_spin_comparison",
+            "description": "Compare spin direction/movement between two pitch types for a pitcher (2015+). Common pitch types: FF (4-seam), SI (sinker), FC (cutter), SL (slider), CU (curveball), CH (changeup), FS (splitter), KN (knuckle).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
+                    "year": {"type": "integer", "description": "Season year (2015 or later)"},
+                    "pitch_a": {"type": "string", "description": "First pitch type (default: FF = 4-seam fastball)"},
+                    "pitch_b": {"type": "string", "description": "Second pitch type (default: CH = changeup)"},
+                    "min_pitches": {"type": "integer", "description": "Minimum pitches thrown (default: 100)"},
+                },
+                "required": ["player_id", "year"],
             },
         },
         {
@@ -788,16 +966,6 @@ def get_tool_definitions() -> list[dict[str, Any]]:
                     },
                 },
                 "required": ["year", "metric_type"],
-            },
-        },
-        {
-            "type": "function",
-            "name": "get_game_statcast",
-            "description": "Get complete pitch-level Statcast data for a single game (2008+).",
-            "parameters": {
-                "type": "object",
-                "properties": {"game_id": {"type": "string", "description": "MLB Advanced Media game ID"}},
-                "required": ["game_id"],
             },
         },
         {
@@ -927,14 +1095,24 @@ async def execute_tool(tool_name: str, tool_args: dict[str, Any]) -> dict[str, A
         return await get_statcast_batter(**tool_args)
     elif tool_name == "get_statcast_pitcher":
         return await get_statcast_pitcher(**tool_args)
-    elif tool_name == "get_statcast_batter_advanced":
-        return await get_statcast_batter_advanced(**tool_args)
-    elif tool_name == "get_statcast_pitcher_advanced":
-        return await get_statcast_pitcher_advanced(**tool_args)
+    elif tool_name == "get_statcast_batter_exitvelo_barrels":
+        return await get_statcast_batter_exitvelo_barrels(**tool_args)
+    elif tool_name == "get_statcast_batter_expected_stats":
+        return await get_statcast_batter_expected_stats(**tool_args)
+    elif tool_name == "get_statcast_batter_percentile_ranks":
+        return await get_statcast_batter_percentile_ranks(**tool_args)
+    elif tool_name == "get_statcast_batter_pitch_arsenal":
+        return await get_statcast_batter_pitch_arsenal(**tool_args)
+    elif tool_name == "get_statcast_pitcher_exitvelo_barrels":
+        return await get_statcast_pitcher_exitvelo_barrels(**tool_args)
+    elif tool_name == "get_statcast_pitcher_expected_stats":
+        return await get_statcast_pitcher_expected_stats(**tool_args)
+    elif tool_name == "get_statcast_pitcher_percentile_ranks":
+        return await get_statcast_pitcher_percentile_ranks(**tool_args)
+    elif tool_name == "get_statcast_pitcher_spin_comparison":
+        return await get_statcast_pitcher_spin_comparison(**tool_args)
     elif tool_name == "get_fielding_stats":
         return await get_fielding_stats(**tool_args)
-    elif tool_name == "get_game_statcast":
-        return await get_game_statcast(**tool_args)
     elif tool_name == "get_team_standings":
         return await get_team_standings(**tool_args)
     elif tool_name == "get_team_stats":

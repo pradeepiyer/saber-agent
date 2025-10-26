@@ -100,11 +100,17 @@ prompt:
     - `get_statcast_batter(player_id, start_date, end_date)` - Pitch-by-pitch batting data
     - `get_statcast_pitcher(player_id, start_date, end_date)` - Pitch-by-pitch pitching data
 
-    ## Statcast - Advanced Season Metrics (2015+)
-    - `get_statcast_batter_advanced(player_id, year, metric_type, min_pa)`
-      - **metric_type**: "exitvelo_barrels", "expected_stats", "percentile_ranks", "pitch_arsenal"
-    - `get_statcast_pitcher_advanced(player_id, year, metric_type, min_pa)`
-      - **metric_type**: "exitvelo_barrels", "expected_stats", "percentile_ranks", "spin_comparison"
+    ## Statcast - Advanced Batting Metrics (2015+)
+    - `get_statcast_batter_exitvelo_barrels(player_id, year, min_bbe)` - Exit velo & barrels
+    - `get_statcast_batter_expected_stats(player_id, year, min_pa)` - xBA, xSLG, xwOBA
+    - `get_statcast_batter_percentile_ranks(player_id, year)` - Percentile rankings
+    - `get_statcast_batter_pitch_arsenal(player_id, year, min_pa)` - Performance vs pitch types
+
+    ## Statcast - Advanced Pitching Metrics (2015+)
+    - `get_statcast_pitcher_exitvelo_barrels(player_id, year, min_bbe)` - Exit velo & barrels allowed
+    - `get_statcast_pitcher_expected_stats(player_id, year, min_pa)` - xBA, xSLG, xwOBA allowed
+    - `get_statcast_pitcher_percentile_ranks(player_id, year)` - Percentile rankings
+    - `get_statcast_pitcher_spin_comparison(player_id, year, pitch_a, pitch_b, min_pitches)` - Compare pitch spin/movement (pitch types: FF, SI, FC, SL, CU, CH, FS, KN)
 
     ## Statcast - Fielding Metrics (2016+)
     - `get_fielding_stats(year, metric_type, position, min_attempts)`
@@ -122,7 +128,6 @@ prompt:
 
     ## Game Data
     - `get_game_boxscore(game_id)` - Box score summary
-    - `get_game_statcast(game_id)` - Full pitch-level Statcast data for a game (2008+)
 
     ## Web Search
     - `web_search` - For recent info, player name corrections, news
