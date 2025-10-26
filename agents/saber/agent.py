@@ -28,21 +28,22 @@ class SaberAgent(BaseAgent):
 
         logger.info("SaberAgent initialized")
 
-    async def process(self, query: str, continue_conversation: bool = False) -> str:
+    async def process(self, query: str) -> str:
         """Process baseball statistics query.
 
         Single entry point - orchestrator handles two-stage processing:
         1. Entity resolution (lookup players, validate teams)
         2. Data retrieval (query stats with resolved entities)
 
+        Automatically continues from previous conversation context if available.
+
         Args:
             query: Natural language baseball query
-            continue_conversation: If True, continues previous conversation
 
         Returns:
             Response text with statistics
         """
-        logger.info(f"Processing query (continue={continue_conversation}): {query[:100]}")
+        logger.info(f"Processing query: {query[:100]}")
 
         # Render orchestrator with teams reference and query injected
         prompts = self.render_prompt("saber", "orchestrator", teams_reference=get_team_reference(), query=query)
@@ -59,7 +60,7 @@ class SaberAgent(BaseAgent):
             tools=get_tool_definitions(),
             tool_executor=execute_tool,
             max_iterations=max_iterations,
-            previous_response_id=self.last_response_id if continue_conversation else None,
+            previous_response_id=self.last_response_id,
             response_format=None,
         )
 

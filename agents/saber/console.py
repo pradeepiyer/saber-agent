@@ -41,7 +41,7 @@ class SaberCommands(SlashCommands):
             return True
 
         agent = cast(SaberAgent, await session.use_agent(SaberAgent))
-        response = await agent.process(user_input, continue_conversation=True)
+        response = await agent.process(user_input)
 
         self.console.print("\n[bold green]Saber Agent:[/bold green]")
         self.console.print(response, markup=False)
