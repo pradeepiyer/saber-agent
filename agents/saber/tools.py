@@ -179,7 +179,7 @@ async def get_minor_league_stats(player_id: int, level: str, season: int) -> dic
         return {"error": f"Invalid level: {level}. Must be one of {list(sport_ids.keys())}"}
 
     # Fetch player stats using statsapi
-    stats = statsapi.player_stats(player_id, group="[hitting,pitching]", type="season", sportId=sport_id)
+    stats = statsapi.player_stat_data(player_id, group="[hitting,pitching]", type="season", sportId=sport_id, season=season)
 
     return {"player_id": player_id, "level": level, "season": season, "stats": stats}
 
