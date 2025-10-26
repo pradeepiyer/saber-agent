@@ -1,0 +1,54 @@
+[project]
+name = "saber-agent"
+version = "0.1.0"
+description = "Baseball statistics AI agent for MLB, minor league, and Negro League baseball"
+requires-python = ">=3.13"
+readme = "README.md"
+license = { text = "MIT" }
+
+dependencies = [
+    "agent-kit",
+    "pybaseball",
+    "MLB-StatsAPI",
+    "pandas",
+    "numpy",
+]
+
+[project.scripts]
+saber-agent = "agents.saber.__main__:main"
+
+[tool.uv]
+package = true
+dev-dependencies = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "pyright",
+]
+
+[tool.uv.sources]
+agent-kit = { path = "../agent-kit", editable = true }
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["agents*"]
+
+[tool.setuptools.package-data]
+"agents.saber" = [
+    "*.yaml",
+    "prompts/**/*.yaml",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[tool.pyright]
+typeCheckingMode = "basic"
+pythonVersion = "3.13"
