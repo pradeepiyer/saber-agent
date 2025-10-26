@@ -100,20 +100,14 @@ prompt:
     - `get_statcast_batter(player_id, start_date, end_date)` - Pitch-by-pitch batting data
     - `get_statcast_pitcher(player_id, start_date, end_date)` - Pitch-by-pitch pitching data
 
-    ## Statcast - Advanced Batting Metrics (2015+)
-    - `get_statcast_batter_exitvelo_barrels(player_id, year, min_bbe)` - Exit velo & barrels
-    - `get_statcast_batter_expected_stats(player_id, year, min_pa)` - xBA, xSLG, xwOBA
-    - `get_statcast_batter_percentile_ranks(player_id, year)` - Percentile rankings
-    - `get_statcast_batter_pitch_arsenal(player_id, year, min_pa)` - Performance vs pitch types
-
-    ## Statcast - Advanced Pitching Metrics (2015+)
-    - `get_statcast_pitcher_exitvelo_barrels(player_id, year, min_bbe)` - Exit velo & barrels allowed
-    - `get_statcast_pitcher_expected_stats(player_id, year, min_pa)` - xBA, xSLG, xwOBA allowed
-    - `get_statcast_pitcher_percentile_ranks(player_id, year)` - Percentile rankings
-    - `get_statcast_pitcher_spin_comparison(player_id, year, pitch_a, pitch_b, min_pitches)` - Compare pitch spin/movement (pitch types: FF, SI, FC, SL, CU, CH, FS, KN)
+    ## Statcast - Season Metrics (2015+)
+    - `get_statcast_batter_season(player_id, year)` - ALL batting metrics: exit velo, barrels, expected stats (xBA/xSLG/xwOBA), percentile ranks, performance vs pitch types
+    - `get_statcast_pitcher_season(player_id, year)` - ALL pitching metrics: exit velo allowed, expected stats allowed, percentile ranks
+    - `get_pitcher_spin_comparison(player_id, year, pitch_a, pitch_b)` - Compare pitch spin/movement (pitch types: FF, SI, FC, SL, CU, CH, FS, KN)
 
     ## Statcast - Fielding Metrics (2016+)
-    - `get_fielding_stats(year, metric_type, position, min_attempts)`
+    - `get_fielding_season(player_id, year)` - ALL fielding metrics for a player: OAA, outfield directional, catch probability, jump, catcher poptime, framing
+    - `get_fielding_stats(year, metric_type, position, min_attempts)` - League-wide fielding metrics for position/metric type
       - **metric_type**: "oaa", "outfield_directional", "catch_probability", "outfielder_jump", "catcher_poptime", "catcher_framing"
       - **position**: 2=C, 3=1B, 4=2B, 5=3B, 6=SS, 7=LF, 8=CF, 9=RF (optional)
 
