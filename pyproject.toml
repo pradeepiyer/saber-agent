@@ -7,7 +7,7 @@ readme = "README.md"
 license = { text = "MIT" }
 
 dependencies = [
-    "agent-kit",
+    "agent-kit @ git+https://github.com/pradeepiyer/agent-kit.git",
     "pybaseball",
     "MLB-StatsAPI",
     "pandas",
@@ -19,15 +19,14 @@ saber-agent = "agents.saber.__main__:main"
 
 [tool.uv]
 package = true
-dev-dependencies = [
+
+[dependency-groups]
+dev = [
     "pytest",
     "pytest-asyncio",
     "ruff",
     "pyright",
 ]
-
-[tool.uv.sources]
-agent-kit = { path = "../agent-kit", editable = true }
 
 [tool.setuptools]
 include-package-data = true
