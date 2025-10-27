@@ -29,20 +29,7 @@ class SaberAgent(BaseAgent):
         logger.info("SaberAgent initialized")
 
     async def process(self, query: str) -> str:
-        """Process baseball statistics query.
-
-        Single entry point - orchestrator handles two-stage processing:
-        1. Entity resolution (lookup players, validate teams)
-        2. Data retrieval (query stats with resolved entities)
-
-        Automatically continues from previous conversation context if available.
-
-        Args:
-            query: Natural language baseball query
-
-        Returns:
-            Response text with statistics
-        """
+        """Process baseball statistics query."""
         logger.info(f"Processing query: {query[:100]}")
 
         # Render orchestrator with teams reference and query injected

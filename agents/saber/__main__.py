@@ -27,9 +27,7 @@ def main():
         # Start appropriate interface(s)
         if config.interfaces.http.enabled:
             app = create_saber_server()
-            uvicorn.run(
-                app, host=config.interfaces.http.host, port=config.interfaces.http.port, log_level="info"
-            )
+            uvicorn.run(app, host=config.interfaces.http.host, port=config.interfaces.http.port, log_level="info")
         elif config.interfaces.console.enabled:
             asyncio.run(run_console(SaberCommands))
         elif config.interfaces.mcp_stdio.enabled:

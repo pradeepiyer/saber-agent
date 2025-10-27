@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any, cast
+from typing import Any
 
 import statsapi
 from pandas import DataFrame
@@ -67,7 +67,7 @@ async def lookup_player(name: str) -> dict[str, Any]:
         logger.info(f"Found {len(mlb_df)} MLB/Negro League matches for '{name}'")
 
     # Check MLB-StatsAPI (minor league players)
-    minor_matches: list[dict[str, Any]] = cast(list[dict[str, Any]], await asyncio.to_thread(statsapi.lookup_player, name))
+    minor_matches: list[dict[str, Any]] = await asyncio.to_thread(statsapi.lookup_player, name)
     if minor_matches:
         results["minor_results"] = minor_matches
         results["status"] = "found"
@@ -97,7 +97,7 @@ async def get_player_batting_stats(
     stats_df: DataFrame = await asyncio.to_thread(batting_stats, start_season, end_season, league=league)
 
     # Filter by player name
-    player_stats = cast(DataFrame, stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)])
+    player_stats = stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)]
 
     if player_stats.empty:
         return {"error": f"No batting stats found for {player_name} ({start_season}-{end_season})"}
@@ -124,7 +124,7 @@ async def get_player_pitching_stats(
     stats_df: DataFrame = await asyncio.to_thread(pitching_stats, start_season, end_season, league=league)
 
     # Filter by player name
-    player_stats = cast(DataFrame, stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)])
+    player_stats = stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)]
 
     if player_stats.empty:
         return {"error": f"No pitching stats found for {player_name} ({start_season}-{end_season})"}
@@ -179,7 +179,14 @@ async def get_minor_league_stats(player_id: int, level: str, season: int) -> dic
         return {"error": f"Invalid level: {level}. Must be one of {list(sport_ids.keys())}"}
 
     # Fetch player stats using statsapi
-    stats: dict[str, Any] = cast(dict[str, Any], await asyncio.to_thread(statsapi.player_stat_data, player_id, group="[hitting,pitching]", type="season", sportId=sport_id, season=season))
+    stats: dict[str, Any] = await asyncio.to_thread(
+        statsapi.player_stat_data,
+        player_id,
+        group="[hitting,pitching]",
+        type="season",
+        sportId=sport_id,
+        season=season,
+    )
 
     return {"player_id": player_id, "level": level, "season": season, "stats": stats}
 
@@ -308,7 +315,7 @@ async def get_statcast_batter_season(player_id: int, year: int) -> dict[str, Any
     try:
         exitvelo_df: DataFrame = await asyncio.to_thread(statcast_batter_exitvelo_barrels, year, 25)
         if "player_id" in exitvelo_df.columns:
-            player_exitvelo = cast(DataFrame, exitvelo_df[exitvelo_df["player_id"] == player_id])
+            player_exitvelo = exitvelo_df[exitvelo_df["player_id"] == player_id]
             if not player_exitvelo.empty:
                 result["exitvelo_barrels"] = player_exitvelo.to_dict("records")[0]
     except Exception:
@@ -318,7 +325,7 @@ async def get_statcast_batter_season(player_id: int, year: int) -> dict[str, Any
     try:
         expected_df: DataFrame = await asyncio.to_thread(statcast_batter_expected_stats, year, 25)
         if "player_id" in expected_df.columns:
-            player_expected = cast(DataFrame, expected_df[expected_df["player_id"] == player_id])
+            player_expected = expected_df[expected_df["player_id"] == player_id]
             if not player_expected.empty:
                 result["expected_stats"] = player_expected.to_dict("records")[0]
     except Exception:
@@ -328,7 +335,7 @@ async def get_statcast_batter_season(player_id: int, year: int) -> dict[str, Any
     try:
         percentile_df: DataFrame = await asyncio.to_thread(statcast_batter_percentile_ranks, year)
         if "player_id" in percentile_df.columns:
-            player_percentile = cast(DataFrame, percentile_df[percentile_df["player_id"] == player_id])
+            player_percentile = percentile_df[percentile_df["player_id"] == player_id]
             if not player_percentile.empty:
                 result["percentile_ranks"] = player_percentile.to_dict("records")[0]
     except Exception:
@@ -338,7 +345,7 @@ async def get_statcast_batter_season(player_id: int, year: int) -> dict[str, Any
     try:
         arsenal_df: DataFrame = await asyncio.to_thread(statcast_batter_pitch_arsenal, year, 25)
         if "player_id" in arsenal_df.columns:
-            player_arsenal = cast(DataFrame, arsenal_df[arsenal_df["player_id"] == player_id])
+            player_arsenal = arsenal_df[arsenal_df["player_id"] == player_id]
             if not player_arsenal.empty:
                 result["pitch_arsenal"] = player_arsenal.to_dict("records")
     except Exception:
@@ -375,7 +382,7 @@ async def get_statcast_pitcher_season(player_id: int, year: int) -> dict[str, An
     try:
         exitvelo_df: DataFrame = await asyncio.to_thread(statcast_pitcher_exitvelo_barrels, year, 25)
         if "player_id" in exitvelo_df.columns:
-            player_exitvelo = cast(DataFrame, exitvelo_df[exitvelo_df["player_id"] == player_id])
+            player_exitvelo = exitvelo_df[exitvelo_df["player_id"] == player_id]
             if not player_exitvelo.empty:
                 result["exitvelo_barrels"] = player_exitvelo.to_dict("records")[0]
     except Exception:
@@ -385,7 +392,7 @@ async def get_statcast_pitcher_season(player_id: int, year: int) -> dict[str, An
     try:
         expected_df: DataFrame = await asyncio.to_thread(statcast_pitcher_expected_stats, year, 25)
         if "player_id" in expected_df.columns:
-            player_expected = cast(DataFrame, expected_df[expected_df["player_id"] == player_id])
+            player_expected = expected_df[expected_df["player_id"] == player_id]
             if not player_expected.empty:
                 result["expected_stats"] = player_expected.to_dict("records")[0]
     except Exception:
@@ -395,7 +402,7 @@ async def get_statcast_pitcher_season(player_id: int, year: int) -> dict[str, An
     try:
         percentile_df: DataFrame = await asyncio.to_thread(statcast_pitcher_percentile_ranks, year)
         if "player_id" in percentile_df.columns:
-            player_percentile = cast(DataFrame, percentile_df[percentile_df["player_id"] == player_id])
+            player_percentile = percentile_df[percentile_df["player_id"] == player_id]
             if not player_percentile.empty:
                 result["percentile_ranks"] = player_percentile.to_dict("records")[0]
     except Exception:
@@ -431,7 +438,7 @@ async def get_pitcher_spin_comparison(
 
     # Filter to specific player
     if "player_id" in stats_df.columns:
-        player_stats = cast(DataFrame, stats_df[stats_df["player_id"] == player_id])
+        player_stats = stats_df[stats_df["player_id"] == player_id]
         if player_stats.empty:
             return {
                 "player_id": player_id,
@@ -440,7 +447,13 @@ async def get_pitcher_spin_comparison(
                 "pitch_b": pitch_b,
                 "error": f"No spin comparison data found for pitcher {player_id} in {year}",
             }
-        return {"player_id": player_id, "year": year, "pitch_a": pitch_a, "pitch_b": pitch_b, "data": player_stats.to_dict("records")}
+        return {
+            "player_id": player_id,
+            "year": year,
+            "pitch_a": pitch_a,
+            "pitch_b": pitch_b,
+            "data": player_stats.to_dict("records"),
+        }
 
     # Return league-wide data if no player_id column
     return {"year": year, "pitch_a": pitch_a, "pitch_b": pitch_b, "data": stats_df.to_dict("records")}
@@ -453,8 +466,9 @@ async def get_fielding_stats(
 
     Args:
         year: Season year
-        metric_type: Type of metric - "oaa", "outfield_directional", "catch_probability", "outfielder_jump", "catcher_poptime", "catcher_framing"
-        position: Position number (3=1B, 4=2B, 5=3B, 6=SS, 7=LF, 8=CF, 9=RF, 2=C) or None for all
+        metric_type: Type of metric - "oaa", "outfield_directional", "catch_probability",
+            "outfielder_jump", "catcher_poptime", "catcher_framing"
+        position: Position number (3=1B, 4=2B, 5=3B, 6=SS, 7=LF, 8=CF, 9=RF, 2=C) or None
         min_attempts: Minimum attempts or "q" for qualified
 
     Returns:
@@ -498,7 +512,7 @@ async def get_fielding_season(player_id: int, year: int) -> dict[str, Any]:
     try:
         oaa_df: DataFrame = await asyncio.to_thread(statcast_outs_above_average, year, "all", "q")
         if "player_id" in oaa_df.columns:
-            player_oaa = cast(DataFrame, oaa_df[oaa_df["player_id"] == player_id])
+            player_oaa = oaa_df[oaa_df["player_id"] == player_id]
             if not player_oaa.empty:
                 result["outs_above_average"] = player_oaa.to_dict("records")[0]
     except Exception:
@@ -508,7 +522,7 @@ async def get_fielding_season(player_id: int, year: int) -> dict[str, Any]:
     try:
         directional_df: DataFrame = await asyncio.to_thread(statcast_outfield_directional_oaa, year, "q")
         if "player_id" in directional_df.columns:
-            player_directional = cast(DataFrame, directional_df[directional_df["player_id"] == player_id])
+            player_directional = directional_df[directional_df["player_id"] == player_id]
             if not player_directional.empty:
                 result["outfield_directional"] = player_directional.to_dict("records")[0]
     except Exception:
@@ -518,7 +532,7 @@ async def get_fielding_season(player_id: int, year: int) -> dict[str, Any]:
     try:
         catch_prob_df: DataFrame = await asyncio.to_thread(statcast_outfield_catch_prob, year, "q")
         if "player_id" in catch_prob_df.columns:
-            player_catch_prob = cast(DataFrame, catch_prob_df[catch_prob_df["player_id"] == player_id])
+            player_catch_prob = catch_prob_df[catch_prob_df["player_id"] == player_id]
             if not player_catch_prob.empty:
                 result["catch_probability"] = player_catch_prob.to_dict("records")[0]
     except Exception:
@@ -528,7 +542,7 @@ async def get_fielding_season(player_id: int, year: int) -> dict[str, Any]:
     try:
         jump_df: DataFrame = await asyncio.to_thread(statcast_outfielder_jump, year, "q")
         if "player_id" in jump_df.columns:
-            player_jump = cast(DataFrame, jump_df[jump_df["player_id"] == player_id])
+            player_jump = jump_df[jump_df["player_id"] == player_id]
             if not player_jump.empty:
                 result["outfielder_jump"] = player_jump.to_dict("records")[0]
     except Exception:
@@ -538,7 +552,7 @@ async def get_fielding_season(player_id: int, year: int) -> dict[str, Any]:
     try:
         poptime_df: DataFrame = await asyncio.to_thread(statcast_catcher_poptime, year, min_2b_att=5, min_3b_att=0)
         if "player_id" in poptime_df.columns:
-            player_poptime = cast(DataFrame, poptime_df[poptime_df["player_id"] == player_id])
+            player_poptime = poptime_df[poptime_df["player_id"] == player_id]
             if not player_poptime.empty:
                 result["catcher_poptime"] = player_poptime.to_dict("records")[0]
     except Exception:
@@ -548,7 +562,7 @@ async def get_fielding_season(player_id: int, year: int) -> dict[str, Any]:
     try:
         framing_df: DataFrame = await asyncio.to_thread(statcast_catcher_framing, year, "q")
         if "player_id" in framing_df.columns:
-            player_framing = cast(DataFrame, framing_df[framing_df["player_id"] == player_id])
+            player_framing = framing_df[framing_df["player_id"] == player_id]
             if not player_framing.empty:
                 result["catcher_framing"] = player_framing.to_dict("records")[0]
     except Exception:
@@ -570,11 +584,20 @@ async def get_team_standings(season: int, division: str | None = None) -> dict[s
     Returns:
         Dictionary with standings data
     """
-    standings_data: list[DataFrame] = cast(list[DataFrame], await asyncio.to_thread(standings, season))
+    standings_raw: Any = await asyncio.to_thread(standings, season)
 
-    # standings() returns a list of 6 dataframes (one per division)
+    # Normalize to a list of DataFrames: pybaseball.standings may return either a single DataFrame
+    # or a list of DataFrames depending on version; handle both safely.
+    if isinstance(standings_raw, DataFrame):
+        standings_list = [standings_raw]
+    elif standings_raw is None:
+        standings_list = []
+    else:
+        standings_list = list(standings_raw)
+
+    # standings_list should now be an iterable of DataFrames (one per division)
     all_standings: list[dict[str, Any]] = []
-    for idx, div_df in enumerate(standings_data):
+    for idx, div_df in enumerate(standings_list):
         if not div_df.empty:
             div_name = div_df.columns[0] if len(div_df.columns) > 0 else f"Division_{idx}"
             all_standings.append({"division": div_name, "teams": div_df.to_dict("records")})
@@ -607,7 +630,7 @@ async def get_team_stats(team_abbr: str, season: int, stat_type: str = "batting"
 
     # Filter by team if Team column exists
     if "Team" in stats_df.columns:
-        team_stats = cast(DataFrame, stats_df[stats_df["Team"].str.contains(team_abbr, case=False, na=False)])
+        team_stats = stats_df[stats_df["Team"].str.contains(team_abbr, case=False, na=False)]
         return {"team": team_abbr, "season": season, "type": stat_type, "stats": team_stats.to_dict("records")}
     else:
         return {"error": "Team information not available in stats data"}
@@ -643,7 +666,7 @@ async def get_game_boxscore(game_id: str) -> dict[str, Any]:
     Returns:
         Dictionary with box score data
     """
-    boxscore: str = cast(str, await asyncio.to_thread(statsapi.boxscore, game_id))
+    boxscore: str = await asyncio.to_thread(statsapi.boxscore, game_id)
     return {"game_id": game_id, "boxscore": boxscore}
 
 
@@ -738,13 +761,20 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         {
             "type": "function",
             "name": "lookup_player",
-            "description": "Find and verify player name in MLB/Negro League (via pybaseball) and minor leagues (via MLB-StatsAPI). Returns matches from both sources. ALWAYS use this FIRST before querying any player statistics.",
+            "description": (
+                "Find and verify player name in MLB/Negro League (via pybaseball) and minor leagues "
+                "(via MLB-StatsAPI). Returns matches from both sources. ALWAYS use this FIRST before "
+                "querying any player statistics."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Player name (full, partial, or last name only). Examples: 'Mike Trout', 'Trout', 'Satchel Paige'",
+                        "description": (
+                            "Player name (full, partial, or last name only). "
+                            "Examples: 'Mike Trout', 'Trout', 'Satchel Paige'"
+                        ),
                     }
                 },
                 "required": ["name"],
@@ -753,7 +783,9 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         {
             "type": "function",
             "name": "get_player_batting_stats",
-            "description": "Get batting statistics for a player across seasons (MLB or Negro League). Use after lookup_player.",
+            "description": (
+                "Get batting statistics for a player across seasons (MLB or Negro League). Use after lookup_player."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -772,7 +804,9 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         {
             "type": "function",
             "name": "get_player_pitching_stats",
-            "description": "Get pitching statistics for a player across seasons (MLB or Negro League). Use after lookup_player.",
+            "description": (
+                "Get pitching statistics for a player across seasons (MLB or Negro League). Use after lookup_player."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -813,7 +847,9 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         {
             "type": "function",
             "name": "get_minor_league_stats",
-            "description": "Get minor league player statistics using MLB-StatsAPI. Requires player_id from lookup_player.",
+            "description": (
+                "Get minor league player statistics using MLB-StatsAPI. Requires player_id from lookup_player."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -841,7 +877,9 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         {
             "type": "function",
             "name": "get_statcast_batter",
-            "description": "Get Statcast batting metrics (exit velocity, launch angle, etc.). Only available 2015-present.",
+            "description": (
+                "Get Statcast batting metrics (exit velocity, launch angle, etc.). Only available 2015-present."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -869,7 +907,11 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         {
             "type": "function",
             "name": "get_statcast_batter_season",
-            "description": "Get ALL Statcast batting metrics for a season (2015+). Returns complete profile: exit velocity, barrels, expected stats (xBA/xSLG/xwOBA), percentile ranks, and performance vs pitch types.",
+            "description": (
+                "Get ALL Statcast batting metrics for a season (2015+). Returns complete profile: "
+                "exit velocity, barrels, expected stats (xBA/xSLG/xwOBA), percentile ranks, "
+                "and performance vs pitch types."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -882,7 +924,11 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         {
             "type": "function",
             "name": "get_statcast_pitcher_season",
-            "description": "Get ALL Statcast pitching metrics for a season (2015+). Returns complete profile: exit velocity allowed, barrels allowed, expected stats allowed (xBA/xSLG/xwOBA), and percentile ranks.",
+            "description": (
+                "Get ALL Statcast pitching metrics for a season (2015+). Returns complete profile: "
+                "exit velocity allowed, barrels allowed, expected stats allowed (xBA/xSLG/xwOBA), "
+                "and percentile ranks."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -895,7 +941,11 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         {
             "type": "function",
             "name": "get_pitcher_spin_comparison",
-            "description": "Compare spin direction/movement between two pitch types for a pitcher (2015+). Common pitch types: FF (4-seam), SI (sinker), FC (cutter), SL (slider), CU (curveball), CH (changeup), FS (splitter), KN (knuckle).",
+            "description": (
+                "Compare spin direction/movement between two pitch types for a pitcher (2015+). "
+                "Common pitch types: FF (4-seam), SI (sinker), FC (cutter), SL (slider), "
+                "CU (curveball), CH (changeup), FS (splitter), KN (knuckle)."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -911,7 +961,9 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         {
             "type": "function",
             "name": "get_fielding_stats",
-            "description": "Get Statcast fielding metrics (2016+). Includes OAA, outfield metrics, and catcher metrics.",
+            "description": (
+                "Get Statcast fielding metrics (2016+). Includes OAA, outfield metrics, and catcher metrics."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -930,7 +982,9 @@ def get_tool_definitions() -> list[dict[str, Any]]:
                     },
                     "position": {
                         "type": "integer",
-                        "description": "Position number: 2=C, 3=1B, 4=2B, 5=3B, 6=SS, 7=LF, 8=CF, 9=RF (optional, None for all)",
+                        "description": (
+                            "Position number: 2=C, 3=1B, 4=2B, 5=3B, 6=SS, 7=LF, 8=CF, 9=RF (optional, None for all)"
+                        ),
                     },
                     "min_attempts": {
                         "type": "string",
@@ -943,7 +997,12 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         {
             "type": "function",
             "name": "get_fielding_season",
-            "description": "Get ALL Statcast fielding metrics for a player's season (2016+). Returns complete fielding profile: outs above average, outfield directional OAA, catch probability, jump, catcher poptime, and framing. Metrics not applicable to player's position will be None.",
+            "description": (
+                "Get ALL Statcast fielding metrics for a player's season (2016+). "
+                "Returns complete fielding profile: outs above average, outfield directional OAA, "
+                "catch probability, jump, catcher poptime, and framing. "
+                "Metrics not applicable to player's position will be None."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
