@@ -13,7 +13,6 @@ from pybaseball import (
     playerid_lookup,
     schedule_and_record,
     standings,
-    statcast_batter,
     statcast_batter_exitvelo_barrels,
     statcast_batter_expected_stats,
     statcast_batter_percentile_ranks,
@@ -24,32 +23,32 @@ from pybaseball import (
     statcast_outfield_directional_oaa,
     statcast_outfielder_jump,
     statcast_outs_above_average,
-    statcast_pitcher,
     statcast_pitcher_exitvelo_barrels,
     statcast_pitcher_expected_stats,
     statcast_pitcher_percentile_ranks,
-    statcast_pitcher_spin_dir_comp,
 )
 
 logger = logging.getLogger(__name__)
 
 
-# ========== Negro League Multi-Year Workaround ==========
+# ========== Multi-Year Query Batching Workaround ==========
 
 
-async def _fetch_negro_league_stats_by_year(
-    start_year: int, end_year: int, stat_type: str, player_name: str | None = None
+async def _fetch_stats_by_year(
+    start_year: int, end_year: int, stat_type: str, league: str = "all", player_name: str | None = None
 ) -> DataFrame:
-    """Fetch Negro League stats year-by-year to avoid FanGraphs HTTP 500 errors.
+    """Fetch stats year-by-year to avoid FanGraphs HTTP 500/524 errors.
 
-    FanGraphs returns HTTP 500 when querying Negro League data across wide date ranges.
-    This function works around that by fetching one year at a time and combining results.
-    Years are fetched in batches to avoid overwhelming FanGraphs' server.
+    FanGraphs returns HTTP 500/524 when querying data across wide date ranges,
+    especially for historical players. This function works around that by fetching
+    one year at a time and combining results. Years are fetched in batches to avoid
+    overwhelming FanGraphs' server.
 
     Args:
         start_year: Starting season year
         end_year: Ending season year
         stat_type: "batting" or "pitching"
+        league: "all", "nl", "al", or "mnl" (Negro League)
         player_name: Optional player name to filter results
 
     Returns:
@@ -63,13 +62,14 @@ async def _fetch_negro_league_stats_by_year(
     async def fetch_year(year: int) -> tuple[int, DataFrame | None]:
         """Fetch stats for a single year."""
         try:
-            year_df: DataFrame = await asyncio.to_thread(fetch_fn, year, year, league="mnl")
+            year_df: DataFrame = await asyncio.to_thread(fetch_fn, year, year, league=league)
             if not year_df.empty:
-                logger.info(f"Fetched {stat_type} stats for Negro League {year}: {len(year_df)} rows")
+                league_label = "Negro League" if league == "mnl" else league.upper()
+                logger.info(f"Fetched {stat_type} stats for {league_label} {year}: {len(year_df)} rows")
                 return (year, year_df)
             return (year, None)
         except Exception as e:
-            logger.warning(f"Failed to fetch {stat_type} stats for Negro League {year}: {e}")
+            logger.warning(f"Failed to fetch {stat_type} stats for {league} {year}: {e}")
             return (year, None)
 
     # Fetch years in batches to avoid overwhelming FanGraphs
@@ -164,11 +164,11 @@ async def get_player_batting_stats(
     Returns:
         Dictionary with batting statistics
     """
-    # For Negro League multi-year queries, fetch year-by-year to avoid HTTP 500
-    if league == "mnl" and end_season > start_season:
-        stats_df = await _fetch_negro_league_stats_by_year(start_season, end_season, "batting", player_name)
+    # For multi-year queries, fetch year-by-year to avoid HTTP 500/524
+    if end_season > start_season:
+        stats_df = await _fetch_stats_by_year(start_season, end_season, "batting", league, player_name)
     else:
-        # Fetch batting stats for the season range
+        # Single year query - fetch directly
         stats_df: DataFrame = await asyncio.to_thread(batting_stats, start_season, end_season, league=league)
         # Filter by player name
         stats_df = stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)]
@@ -194,11 +194,11 @@ async def get_player_pitching_stats(
     Returns:
         Dictionary with pitching statistics
     """
-    # For Negro League multi-year queries, fetch year-by-year to avoid HTTP 500
-    if league == "mnl" and end_season > start_season:
-        stats_df = await _fetch_negro_league_stats_by_year(start_season, end_season, "pitching", player_name)
+    # For multi-year queries, fetch year-by-year to avoid HTTP 500/524
+    if end_season > start_season:
+        stats_df = await _fetch_stats_by_year(start_season, end_season, "pitching", league, player_name)
     else:
-        # Fetch pitching stats for the season range
+        # Single year query - fetch directly
         stats_df: DataFrame = await asyncio.to_thread(pitching_stats, start_season, end_season, league=league)
         # Filter by player name
         stats_df = stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)]
@@ -208,31 +208,6 @@ async def get_player_pitching_stats(
 
     # Convert to dictionary
     return {"stats": stats_df.to_dict("records"), "seasons": f"{start_season}-{end_season}"}
-
-
-async def get_player_career_stats(player_name: str, stat_type: str = "batting", league: str = "all") -> dict[str, Any]:
-    """Get career aggregated stats across all available seasons.
-
-    Args:
-        player_name: Player's full name
-        stat_type: "batting" or "pitching"
-        league: "all", "nl", "al", or "mnl" (Negro League)
-
-    Returns:
-        Dictionary with career statistics
-    """
-    # Determine appropriate year range based on league
-    if league == "mnl":
-        start_year, end_year = 1920, 1948
-    else:
-        start_year, end_year = 1871, 2025
-
-    if stat_type == "batting":
-        return await get_player_batting_stats(player_name, start_year, end_year, league)
-    elif stat_type == "pitching":
-        return await get_player_pitching_stats(player_name, start_year, end_year, league)
-    else:
-        return {"error": f"Invalid stat_type: {stat_type}. Must be 'batting' or 'pitching'"}
 
 
 # ========== Player Statistics (Minor League) ==========
@@ -318,70 +293,6 @@ async def get_player_progression(player_id: int) -> dict[str, Any]:
 # ========== Advanced Metrics (Statcast - 2015+) ==========
 
 
-async def get_statcast_batter(player_id: int, start_date: str, end_date: str) -> dict[str, Any]:
-    """Get Statcast batting metrics (exit velocity, launch angle, etc.).
-
-    Args:
-        player_id: MLB Advanced Media player ID
-        start_date: Start date in "YYYY-MM-DD" format
-        end_date: End date in "YYYY-MM-DD" format
-
-    Returns:
-        Dictionary with Statcast batting data
-    """
-    stats_df: DataFrame = await asyncio.to_thread(statcast_batter, start_date, end_date, player_id)
-
-    if stats_df.empty:
-        return {"error": f"No Statcast data found for player {player_id} ({start_date} to {end_date})"}
-
-    # Calculate aggregates
-    aggregates = {
-        "total_pitches": len(stats_df),
-        "avg_exit_velocity": stats_df["launch_speed"].mean() if "launch_speed" in stats_df else None,
-        "avg_launch_angle": stats_df["launch_angle"].mean() if "launch_angle" in stats_df else None,
-        "max_exit_velocity": stats_df["launch_speed"].max() if "launch_speed" in stats_df else None,
-    }
-
-    return {
-        "player_id": player_id,
-        "date_range": f"{start_date} to {end_date}",
-        "aggregates": aggregates,
-        "data": stats_df.to_dict("records")[:100],  # Limit to first 100 rows
-    }
-
-
-async def get_statcast_pitcher(player_id: int, start_date: str, end_date: str) -> dict[str, Any]:
-    """Get Statcast pitching metrics (spin rate, velocity, etc.).
-
-    Args:
-        player_id: MLB Advanced Media player ID
-        start_date: Start date in "YYYY-MM-DD" format
-        end_date: End date in "YYYY-MM-DD" format
-
-    Returns:
-        Dictionary with Statcast pitching data
-    """
-    stats_df: DataFrame = await asyncio.to_thread(statcast_pitcher, start_date, end_date, player_id)
-
-    if stats_df.empty:
-        return {"error": f"No Statcast data found for pitcher {player_id} ({start_date} to {end_date})"}
-
-    # Calculate aggregates
-    aggregates = {
-        "total_pitches": len(stats_df),
-        "avg_velocity": stats_df["release_speed"].mean() if "release_speed" in stats_df else None,
-        "avg_spin_rate": stats_df["release_spin_rate"].mean() if "release_spin_rate" in stats_df else None,
-        "max_velocity": stats_df["release_speed"].max() if "release_speed" in stats_df else None,
-    }
-
-    return {
-        "player_id": player_id,
-        "date_range": f"{start_date} to {end_date}",
-        "aggregates": aggregates,
-        "data": stats_df.to_dict("records")[:100],  # Limit to first 100 rows
-    }
-
-
 async def get_statcast_batter_season(player_id: int, year: int) -> dict[str, Any]:
     """Get ALL Statcast batting metrics for a player's season.
 
@@ -456,8 +367,6 @@ async def get_statcast_pitcher_season(player_id: int, year: int) -> dict[str, An
     - Expected stats allowed (xBA, xSLG, xwOBA)
     - Percentile rankings across all metrics
 
-    Note: Spin comparison requires specific pitch types, use get_pitcher_spin_comparison() instead.
-
     Args:
         player_id: MLB Advanced Media player ID
         year: Season year (2015+)
@@ -503,83 +412,6 @@ async def get_statcast_pitcher_season(player_id: int, year: int) -> dict[str, An
         return {"error": f"No Statcast season data found for pitcher {player_id} in {year}"}
 
     return result
-
-
-async def get_pitcher_spin_comparison(
-    player_id: int, year: int, pitch_a: str = "FF", pitch_b: str = "CH", min_pitches: int = 100
-) -> dict[str, Any]:
-    """Compare spin direction/movement between two pitch types for a pitcher.
-
-    Args:
-        player_id: MLB Advanced Media player ID
-        year: Season year (2015+)
-        pitch_a: First pitch type to compare (default: "FF" = 4-seam fastball)
-        pitch_b: Second pitch type to compare (default: "CH" = changeup)
-        min_pitches: Minimum pitches thrown (default: 100)
-
-    Common pitch types: FF (4-seam), SI (sinker), FC (cutter), SL (slider),
-                        CU (curveball), CH (changeup), FS (splitter), KN (knuckle)
-
-    Returns:
-        Dictionary with spin comparison data
-    """
-    stats_df: DataFrame = await asyncio.to_thread(statcast_pitcher_spin_dir_comp, year, pitch_a, pitch_b, min_pitches)
-
-    # Filter to specific player
-    if "player_id" in stats_df.columns:
-        player_stats = stats_df[stats_df["player_id"] == player_id]
-        if player_stats.empty:
-            return {
-                "player_id": player_id,
-                "year": year,
-                "pitch_a": pitch_a,
-                "pitch_b": pitch_b,
-                "error": f"No spin comparison data found for pitcher {player_id} in {year}",
-            }
-        return {
-            "player_id": player_id,
-            "year": year,
-            "pitch_a": pitch_a,
-            "pitch_b": pitch_b,
-            "data": player_stats.to_dict("records"),
-        }
-
-    # Return league-wide data if no player_id column
-    return {"year": year, "pitch_a": pitch_a, "pitch_b": pitch_b, "data": stats_df.to_dict("records")}
-
-
-async def get_fielding_stats(
-    year: int, metric_type: str, position: int | None = None, min_attempts: str | int = "q"
-) -> dict[str, Any]:
-    """Get Statcast fielding metrics for a season.
-
-    Args:
-        year: Season year
-        metric_type: Type of metric - "oaa", "outfield_directional", "catch_probability",
-            "outfielder_jump", "catcher_poptime", "catcher_framing"
-        position: Position number (3=1B, 4=2B, 5=3B, 6=SS, 7=LF, 8=CF, 9=RF, 2=C) or None
-        min_attempts: Minimum attempts or "q" for qualified
-
-    Returns:
-        Dictionary with fielding data
-    """
-    stats_df: DataFrame
-    if metric_type == "oaa":
-        stats_df = await asyncio.to_thread(statcast_outs_above_average, year, position or "all", min_attempts)
-    elif metric_type == "outfield_directional":
-        stats_df = await asyncio.to_thread(statcast_outfield_directional_oaa, year, min_attempts)
-    elif metric_type == "catch_probability":
-        stats_df = await asyncio.to_thread(statcast_outfield_catch_prob, year, min_attempts)
-    elif metric_type == "outfielder_jump":
-        stats_df = await asyncio.to_thread(statcast_outfielder_jump, year, min_attempts)
-    elif metric_type == "catcher_poptime":
-        stats_df = await asyncio.to_thread(statcast_catcher_poptime, year, min_2b_att=5, min_3b_att=0)
-    elif metric_type == "catcher_framing":
-        stats_df = await asyncio.to_thread(statcast_catcher_framing, year, min_attempts)
-    else:
-        return {"error": f"Invalid metric_type: {metric_type}"}
-
-    return {"year": year, "metric_type": metric_type, "position": position, "data": stats_df.to_dict("records")}
 
 
 async def get_fielding_season(player_id: int, year: int) -> dict[str, Any]:
@@ -762,35 +594,6 @@ async def get_game_boxscore(game_id: str) -> dict[str, Any]:
 # ========== Comparison & Analysis ==========
 
 
-async def compare_players(player_names: list[str], seasons: str, stat_categories: list[str]) -> dict[str, Any]:
-    """Side-by-side player comparison.
-
-    Args:
-        player_names: List of player names to compare
-        seasons: Season range (e.g., "2023" or "2020-2023")
-        stat_categories: List of stat categories to compare
-
-    Returns:
-        Dictionary with comparison data
-    """
-    # Parse season range
-    if "-" in seasons:
-        start, end = seasons.split("-")
-        start_season, end_season = int(start), int(end)
-    else:
-        start_season = end_season = int(seasons)
-
-    # Fetch stats for each player
-    comparisons: list[dict[str, Any]] = []
-    for player_name in player_names:
-        batting = await get_player_batting_stats(player_name, start_season, end_season)
-        pitching = await get_player_pitching_stats(player_name, start_season, end_season)
-
-        comparisons.append({"player": player_name, "batting": batting, "pitching": pitching})
-
-    return {"players": player_names, "seasons": seasons, "comparisons": comparisons}
-
-
 async def get_league_leaders(season: int, stat_category: str, league: str = "MLB", limit: int = 10) -> dict[str, Any]:
     """Get top N performers in category.
 
@@ -851,8 +654,9 @@ def get_tool_definitions() -> list[dict[str, Any]]:
             "name": "lookup_player",
             "description": (
                 "Find and verify player name in MLB/Negro League (via pybaseball) and minor leagues "
-                "(via MLB-StatsAPI). Returns matches from both sources. ALWAYS use this FIRST before "
-                "querying any player statistics."
+                "(via MLB-StatsAPI). Returns matches with player IDs AND career span (mlb_played_first, "
+                "mlb_played_last years). USE these years as date ranges when querying player statistics "
+                "to avoid timeouts. ALWAYS call this FIRST before querying any player statistics."
             ),
             "parameters": {
                 "type": "object",
@@ -912,28 +716,6 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "type": "function",
-            "name": "get_player_career_stats",
-            "description": "Get career aggregated stats across all available seasons for a player.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "player_name": {"type": "string", "description": "Player's full name from lookup_player"},
-                    "stat_type": {
-                        "type": "string",
-                        "description": "Type of stats: 'batting' or 'pitching'",
-                        "enum": ["batting", "pitching"],
-                    },
-                    "league": {
-                        "type": "string",
-                        "description": "League: 'all' (default), 'nl', 'al', or 'mnl' (Negro League)",
-                        "enum": ["all", "nl", "al", "mnl"],
-                    },
-                },
-                "required": ["player_name"],
-            },
-        },
-        {
-            "type": "function",
             "name": "get_minor_league_stats",
             "description": (
                 "Get minor league player statistics using MLB-StatsAPI. Requires player_id from lookup_player."
@@ -968,36 +750,6 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "type": "function",
-            "name": "get_statcast_batter",
-            "description": (
-                "Get Statcast batting metrics (exit velocity, launch angle, etc.). Only available 2015-present."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
-                    "start_date": {"type": "string", "description": "Start date in YYYY-MM-DD format"},
-                    "end_date": {"type": "string", "description": "End date in YYYY-MM-DD format"},
-                },
-                "required": ["player_id", "start_date", "end_date"],
-            },
-        },
-        {
-            "type": "function",
-            "name": "get_statcast_pitcher",
-            "description": "Get Statcast pitching metrics (spin rate, velocity, etc.). Only available 2015-present.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
-                    "start_date": {"type": "string", "description": "Start date in YYYY-MM-DD format"},
-                    "end_date": {"type": "string", "description": "End date in YYYY-MM-DD format"},
-                },
-                "required": ["player_id", "start_date", "end_date"],
-            },
-        },
-        {
-            "type": "function",
             "name": "get_statcast_batter_season",
             "description": (
                 "Get ALL Statcast batting metrics for a season (2015+). Returns complete profile: "
@@ -1028,62 +780,6 @@ def get_tool_definitions() -> list[dict[str, Any]]:
                     "year": {"type": "integer", "description": "Season year (2015 or later)"},
                 },
                 "required": ["player_id", "year"],
-            },
-        },
-        {
-            "type": "function",
-            "name": "get_pitcher_spin_comparison",
-            "description": (
-                "Compare spin direction/movement between two pitch types for a pitcher (2015+). "
-                "Common pitch types: FF (4-seam), SI (sinker), FC (cutter), SL (slider), "
-                "CU (curveball), CH (changeup), FS (splitter), KN (knuckle)."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
-                    "year": {"type": "integer", "description": "Season year (2015 or later)"},
-                    "pitch_a": {"type": "string", "description": "First pitch type (default: FF = 4-seam fastball)"},
-                    "pitch_b": {"type": "string", "description": "Second pitch type (default: CH = changeup)"},
-                    "min_pitches": {"type": "integer", "description": "Minimum pitches thrown (default: 100)"},
-                },
-                "required": ["player_id", "year"],
-            },
-        },
-        {
-            "type": "function",
-            "name": "get_fielding_stats",
-            "description": (
-                "Get Statcast fielding metrics (2016+). Includes OAA, outfield metrics, and catcher metrics."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "year": {"type": "integer", "description": "Season year (2016 or later)"},
-                    "metric_type": {
-                        "type": "string",
-                        "description": "Type of fielding metric",
-                        "enum": [
-                            "oaa",
-                            "outfield_directional",
-                            "catch_probability",
-                            "outfielder_jump",
-                            "catcher_poptime",
-                            "catcher_framing",
-                        ],
-                    },
-                    "position": {
-                        "type": "integer",
-                        "description": (
-                            "Position number: 2=C, 3=1B, 4=2B, 5=3B, 6=SS, 7=LF, 8=CF, 9=RF (optional, None for all)"
-                        ),
-                    },
-                    "min_attempts": {
-                        "type": "string",
-                        "description": "Minimum attempts: 'q' for qualified or integer (default 'q')",
-                    },
-                },
-                "required": ["year", "metric_type"],
             },
         },
         {
@@ -1160,28 +856,6 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "type": "function",
-            "name": "compare_players",
-            "description": "Side-by-side comparison of multiple players' statistics.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "player_names": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of player names to compare",
-                    },
-                    "seasons": {"type": "string", "description": "Season range (e.g., '2023' or '2020-2023')"},
-                    "stat_categories": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of stat categories to compare",
-                    },
-                },
-                "required": ["player_names", "seasons", "stat_categories"],
-            },
-        },
-        {
-            "type": "function",
             "name": "get_league_leaders",
             "description": "Get top N performers in a stat category for a season.",
             "parameters": {
@@ -1227,24 +901,14 @@ async def execute_tool(tool_name: str, tool_args: dict[str, Any]) -> dict[str, A
             result = await get_player_batting_stats(**tool_args)
         elif tool_name == "get_player_pitching_stats":
             result = await get_player_pitching_stats(**tool_args)
-        elif tool_name == "get_player_career_stats":
-            result = await get_player_career_stats(**tool_args)
         elif tool_name == "get_minor_league_stats":
             result = await get_minor_league_stats(**tool_args)
         elif tool_name == "get_player_progression":
             result = await get_player_progression(**tool_args)
-        elif tool_name == "get_statcast_batter":
-            result = await get_statcast_batter(**tool_args)
-        elif tool_name == "get_statcast_pitcher":
-            result = await get_statcast_pitcher(**tool_args)
         elif tool_name == "get_statcast_batter_season":
             result = await get_statcast_batter_season(**tool_args)
         elif tool_name == "get_statcast_pitcher_season":
             result = await get_statcast_pitcher_season(**tool_args)
-        elif tool_name == "get_pitcher_spin_comparison":
-            result = await get_pitcher_spin_comparison(**tool_args)
-        elif tool_name == "get_fielding_stats":
-            result = await get_fielding_stats(**tool_args)
         elif tool_name == "get_fielding_season":
             result = await get_fielding_season(**tool_args)
         elif tool_name == "get_team_standings":
@@ -1255,8 +919,6 @@ async def execute_tool(tool_name: str, tool_args: dict[str, Any]) -> dict[str, A
             result = await get_team_schedule(**tool_args)
         elif tool_name == "get_game_boxscore":
             result = await get_game_boxscore(**tool_args)
-        elif tool_name == "compare_players":
-            result = await compare_players(**tool_args)
         elif tool_name == "get_league_leaders":
             result = await get_league_leaders(**tool_args)
         else:

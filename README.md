@@ -28,7 +28,8 @@ uv run python -m agents.saber
 - "Compare Josh Gibson and Babe Ruth's career home runs"
 - "How did Juan Soto perform in Triple-A before his MLB debut?"
 - "Show me Mike Trout's Statcast metrics from 2023"
-- "What make Bryce Eldridge so special?"
+- "What makes Bryce Eldridge so special?"
+- "How did Logan Webb progress through the minor leagues to major league?"
 
 ## Architecture
 
