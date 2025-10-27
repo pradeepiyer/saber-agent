@@ -34,6 +34,76 @@ from pybaseball import (
 logger = logging.getLogger(__name__)
 
 
+# ========== Negro League Multi-Year Workaround ==========
+
+
+async def _fetch_negro_league_stats_by_year(
+    start_year: int, end_year: int, stat_type: str, player_name: str | None = None
+) -> DataFrame:
+    """Fetch Negro League stats year-by-year to avoid FanGraphs HTTP 500 errors.
+
+    FanGraphs returns HTTP 500 when querying Negro League data across wide date ranges.
+    This function works around that by fetching one year at a time and combining results.
+    Years are fetched in batches to avoid overwhelming FanGraphs' server.
+
+    Args:
+        start_year: Starting season year
+        end_year: Ending season year
+        stat_type: "batting" or "pitching"
+        player_name: Optional player name to filter results
+
+    Returns:
+        Combined DataFrame with all years' data
+    """
+    import pandas as pd
+
+    fetch_fn = batting_stats if stat_type == "batting" else pitching_stats
+    BATCH_SIZE = 5  # Fetch 5 years at a time to avoid rate limiting
+
+    async def fetch_year(year: int) -> tuple[int, DataFrame | None]:
+        """Fetch stats for a single year."""
+        try:
+            year_df: DataFrame = await asyncio.to_thread(fetch_fn, year, year, league="mnl")
+            if not year_df.empty:
+                logger.info(f"Fetched {stat_type} stats for Negro League {year}: {len(year_df)} rows")
+                return (year, year_df)
+            return (year, None)
+        except Exception as e:
+            logger.warning(f"Failed to fetch {stat_type} stats for Negro League {year}: {e}")
+            return (year, None)
+
+    # Fetch years in batches to avoid overwhelming FanGraphs
+    years = list(range(start_year, end_year + 1))
+    all_data: list[DataFrame] = []
+
+    for i in range(0, len(years), BATCH_SIZE):
+        batch = years[i : i + BATCH_SIZE]
+        logger.info(f"Fetching batch of {len(batch)} years: {batch[0]}-{batch[-1]}")
+
+        batch_results = await asyncio.gather(*[fetch_year(year) for year in batch], return_exceptions=True)
+
+        # Filter out exceptions and None results
+        for result in batch_results:
+            if isinstance(result, Exception):
+                logger.warning(f"Exception during fetch: {result}")
+                continue
+            if isinstance(result, tuple):
+                _, df = result
+                if df is not None:
+                    all_data.append(df)
+
+    if not all_data:
+        return DataFrame()
+
+    combined_df = pd.concat(all_data, ignore_index=True)
+
+    # Filter by player name if provided
+    if player_name and "Name" in combined_df.columns:
+        combined_df = combined_df[combined_df["Name"].str.contains(player_name, case=False, na=False)]
+
+    return combined_df
+
+
 # ========== Player Lookup & Resolution ==========
 
 
@@ -94,17 +164,20 @@ async def get_player_batting_stats(
     Returns:
         Dictionary with batting statistics
     """
-    # Fetch batting stats for the season range
-    stats_df: DataFrame = await asyncio.to_thread(batting_stats, start_season, end_season, league=league)
+    # For Negro League multi-year queries, fetch year-by-year to avoid HTTP 500
+    if league == "mnl" and end_season > start_season:
+        stats_df = await _fetch_negro_league_stats_by_year(start_season, end_season, "batting", player_name)
+    else:
+        # Fetch batting stats for the season range
+        stats_df: DataFrame = await asyncio.to_thread(batting_stats, start_season, end_season, league=league)
+        # Filter by player name
+        stats_df = stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)]
 
-    # Filter by player name
-    player_stats = stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)]
-
-    if player_stats.empty:
+    if stats_df.empty:
         return {"error": f"No batting stats found for {player_name} ({start_season}-{end_season})"}
 
     # Convert to dictionary
-    return {"stats": player_stats.to_dict("records"), "seasons": f"{start_season}-{end_season}"}
+    return {"stats": stats_df.to_dict("records"), "seasons": f"{start_season}-{end_season}"}
 
 
 async def get_player_pitching_stats(
@@ -121,17 +194,20 @@ async def get_player_pitching_stats(
     Returns:
         Dictionary with pitching statistics
     """
-    # Fetch pitching stats for the season range
-    stats_df: DataFrame = await asyncio.to_thread(pitching_stats, start_season, end_season, league=league)
+    # For Negro League multi-year queries, fetch year-by-year to avoid HTTP 500
+    if league == "mnl" and end_season > start_season:
+        stats_df = await _fetch_negro_league_stats_by_year(start_season, end_season, "pitching", player_name)
+    else:
+        # Fetch pitching stats for the season range
+        stats_df: DataFrame = await asyncio.to_thread(pitching_stats, start_season, end_season, league=league)
+        # Filter by player name
+        stats_df = stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)]
 
-    # Filter by player name
-    player_stats = stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)]
-
-    if player_stats.empty:
+    if stats_df.empty:
         return {"error": f"No pitching stats found for {player_name} ({start_season}-{end_season})"}
 
     # Convert to dictionary
-    return {"stats": player_stats.to_dict("records"), "seasons": f"{start_season}-{end_season}"}
+    return {"stats": stats_df.to_dict("records"), "seasons": f"{start_season}-{end_season}"}
 
 
 async def get_player_career_stats(player_name: str, stat_type: str = "batting", league: str = "all") -> dict[str, Any]:
