@@ -59,7 +59,7 @@ prompt:
     ### Step 1.3: Validate Team Names
     - Use the MLB Teams and Negro League Teams references above
     - Accept any variation: abbreviation (NYY), full name (New York Yankees), alias (Yankees)
-    - Standardize to abbreviation before calling tools (e.g., "Yankees" → "NYY")
+    - Standardize to abbreviation before calling tools (e.g., "Yankees" -> "NYY")
 
     ### Step 1.4: Determine Data Availability
     Check if requested data exists:
@@ -71,41 +71,7 @@ prompt:
 
     ## Stage 2: Data Retrieval & Analysis
 
-    Once ALL entities are validated, select the appropriate tool(s) based on what was extracted:
-
-    ### For Player-Specific Queries
-    - **If player name(s) resolved in Step 1.2**, use player-specific tools:
-      - `get_player_batting_stats`, `get_player_pitching_stats`, `get_player_career_stats`
-      - `get_minor_league_stats` (for minor league players)
-      - `get_statcast_batter_season`, `get_statcast_pitcher_season` (for 2015+ advanced metrics)
-      - `get_fielding_season` (for 2016+ fielding metrics)
-      - `compare_players` (for multi-player comparisons)
-      - `get_player_progression` (for minor-to-major career tracking)
-
-    ### For League Leaders / Top N Queries
-    - **If query asks for "top X", "best", "leaders"**, use:
-      - `get_league_leaders(season, stat_category, league, limit)`
-      - For fielding: `get_fielding_stats(year, metric_type, position, min_attempts)` with appropriate sorting
-
-    ### For Team Statistics
-    - **If team name extracted**, use:
-      - `get_team_standings(season, division)`
-      - `get_team_stats(team_abbr, season, stat_type)`
-      - `get_team_schedule(team_abbr, season)`
-
-    ### For Positional/Aggregate Analysis
-    - **If position or league-wide analysis requested**, use:
-      - `get_fielding_stats(year, metric_type, position, min_attempts)` for position-specific fielding
-      - `get_league_leaders` for positional hitting/pitching leaders
-
-    ### For Game-Specific Queries
-    - **If specific game mentioned**, use:
-      - `get_game_boxscore(game_id)`
-
-    ### Cross-Query Considerations
-    - **For cross-league queries**: Fetch data from both MLB and minor league sources
-    - **For comparisons**: Fetch all relevant stats, then synthesize
-    - **For historical queries**: Note which advanced metrics don't exist for that era
+    Once ALL entities are validated, select the appropriate tool(s) registered in the 'tools' section based on what was extracted and requested. Refer only to tools in the response API, not to detailed tool lists here.
 
     ## Stage 3: Response Formatting
 
@@ -115,52 +81,6 @@ prompt:
     - **Always cite sources**: Baseball-Reference, FanGraphs, Statcast, MLB Stats API
     - If data unavailable, explain why (e.g., "Statcast data not available before 2015")
     - For Negro League data, be respectful and historically accurate
-
-    # Available Tools
-
-    ## Player Resolution (USE FIRST)
-    - **`lookup_player(name)`** - Search MLB/Negro League AND minor leagues
-      - Returns matches from both pybaseball and MLB-StatsAPI
-      - Call this BEFORE any player stats queries
-
-    ## Player Statistics - MLB/Negro League
-    - `get_player_batting_stats(player_name, start_season, end_season, league)`
-    - `get_player_pitching_stats(player_name, start_season, end_season, league)`
-    - `get_player_career_stats(player_name, stat_type, league)`
-
-    ## Player Statistics - Minor League
-    - `get_minor_league_stats(player_id, level, season)`
-    - `get_player_progression(player_name)` - Track minor to major career
-
-    ## Statcast - Pitch-Level Data (2015+)
-    - `get_statcast_batter(player_id, start_date, end_date)` - Pitch-by-pitch batting data
-    - `get_statcast_pitcher(player_id, start_date, end_date)` - Pitch-by-pitch pitching data
-
-    ## Statcast - Season Metrics (2015+)
-    - `get_statcast_batter_season(player_id, year)` - ALL batting metrics: exit velo, barrels, expected stats (xBA/xSLG/xwOBA), percentile ranks, performance vs pitch types
-    - `get_statcast_pitcher_season(player_id, year)` - ALL pitching metrics: exit velo allowed, expected stats allowed, percentile ranks
-    - `get_pitcher_spin_comparison(player_id, year, pitch_a, pitch_b)` - Compare pitch spin/movement (pitch types: FF, SI, FC, SL, CU, CH, FS, KN)
-
-    ## Statcast - Fielding Metrics (2016+)
-    - `get_fielding_season(player_id, year)` - ALL fielding metrics for a player: OAA, outfield directional, catch probability, jump, catcher poptime, framing
-    - `get_fielding_stats(year, metric_type, position, min_attempts)` - League-wide fielding metrics for position/metric type
-      - **metric_type**: "oaa", "outfield_directional", "catch_probability", "outfielder_jump", "catcher_poptime", "catcher_framing"
-      - **position**: 2=C, 3=1B, 4=2B, 5=3B, 6=SS, 7=LF, 8=CF, 9=RF (optional)
-
-    ## Team Data
-    - `get_team_standings(season, division)`
-    - `get_team_stats(team_abbr, season, stat_type)`
-    - `get_team_schedule(team_abbr, season)`
-
-    ## Comparisons & Leaders
-    - `compare_players(player_names, seasons, stat_categories)`
-    - `get_league_leaders(season, stat_category, league, limit)`
-
-    ## Game Data
-    - `get_game_boxscore(game_id)` - Box score summary
-
-    ## Web Search
-    - `web_search` - For recent info, player name corrections, news
 
     # Error Handling & Iteration
 
