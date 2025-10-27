@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 import statsapi
@@ -757,7 +758,6 @@ async def get_league_leaders(season: int, stat_category: str, league: str = "MLB
 def get_tool_definitions() -> list[dict[str, Any]]:
     """Return OpenAI tool definitions for all functions."""
     return [
-        {"type": "web_search", "search_context_size": "high"},
         {
             "type": "function",
             "name": "lookup_player",
@@ -1110,6 +1110,7 @@ def get_tool_definitions() -> list[dict[str, Any]]:
                 "required": ["season", "stat_category"],
             },
         },
+        {"type": "web_search", "search_context_size": "low"},
     ]
 
 
@@ -1123,43 +1124,56 @@ async def execute_tool(tool_name: str, tool_args: dict[str, Any]) -> dict[str, A
     Returns:
         Tool execution result
     """
-    if tool_name == "lookup_player":
-        return await lookup_player(**tool_args)
-    elif tool_name == "get_player_batting_stats":
-        return await get_player_batting_stats(**tool_args)
-    elif tool_name == "get_player_pitching_stats":
-        return await get_player_pitching_stats(**tool_args)
-    elif tool_name == "get_player_career_stats":
-        return await get_player_career_stats(**tool_args)
-    elif tool_name == "get_minor_league_stats":
-        return await get_minor_league_stats(**tool_args)
-    elif tool_name == "get_player_progression":
-        return await get_player_progression(**tool_args)
-    elif tool_name == "get_statcast_batter":
-        return await get_statcast_batter(**tool_args)
-    elif tool_name == "get_statcast_pitcher":
-        return await get_statcast_pitcher(**tool_args)
-    elif tool_name == "get_statcast_batter_season":
-        return await get_statcast_batter_season(**tool_args)
-    elif tool_name == "get_statcast_pitcher_season":
-        return await get_statcast_pitcher_season(**tool_args)
-    elif tool_name == "get_pitcher_spin_comparison":
-        return await get_pitcher_spin_comparison(**tool_args)
-    elif tool_name == "get_fielding_stats":
-        return await get_fielding_stats(**tool_args)
-    elif tool_name == "get_fielding_season":
-        return await get_fielding_season(**tool_args)
-    elif tool_name == "get_team_standings":
-        return await get_team_standings(**tool_args)
-    elif tool_name == "get_team_stats":
-        return await get_team_stats(**tool_args)
-    elif tool_name == "get_team_schedule":
-        return await get_team_schedule(**tool_args)
-    elif tool_name == "get_game_boxscore":
-        return await get_game_boxscore(**tool_args)
-    elif tool_name == "compare_players":
-        return await compare_players(**tool_args)
-    elif tool_name == "get_league_leaders":
-        return await get_league_leaders(**tool_args)
-    else:
-        raise ValueError(f"Unknown tool: {tool_name}")
+    start_time = time.perf_counter()
+    logger.info(f"[TIMING] Starting tool: {tool_name}")
+
+    try:
+        result = None
+        if tool_name == "lookup_player":
+            result = await lookup_player(**tool_args)
+        elif tool_name == "get_player_batting_stats":
+            result = await get_player_batting_stats(**tool_args)
+        elif tool_name == "get_player_pitching_stats":
+            result = await get_player_pitching_stats(**tool_args)
+        elif tool_name == "get_player_career_stats":
+            result = await get_player_career_stats(**tool_args)
+        elif tool_name == "get_minor_league_stats":
+            result = await get_minor_league_stats(**tool_args)
+        elif tool_name == "get_player_progression":
+            result = await get_player_progression(**tool_args)
+        elif tool_name == "get_statcast_batter":
+            result = await get_statcast_batter(**tool_args)
+        elif tool_name == "get_statcast_pitcher":
+            result = await get_statcast_pitcher(**tool_args)
+        elif tool_name == "get_statcast_batter_season":
+            result = await get_statcast_batter_season(**tool_args)
+        elif tool_name == "get_statcast_pitcher_season":
+            result = await get_statcast_pitcher_season(**tool_args)
+        elif tool_name == "get_pitcher_spin_comparison":
+            result = await get_pitcher_spin_comparison(**tool_args)
+        elif tool_name == "get_fielding_stats":
+            result = await get_fielding_stats(**tool_args)
+        elif tool_name == "get_fielding_season":
+            result = await get_fielding_season(**tool_args)
+        elif tool_name == "get_team_standings":
+            result = await get_team_standings(**tool_args)
+        elif tool_name == "get_team_stats":
+            result = await get_team_stats(**tool_args)
+        elif tool_name == "get_team_schedule":
+            result = await get_team_schedule(**tool_args)
+        elif tool_name == "get_game_boxscore":
+            result = await get_game_boxscore(**tool_args)
+        elif tool_name == "compare_players":
+            result = await compare_players(**tool_args)
+        elif tool_name == "get_league_leaders":
+            result = await get_league_leaders(**tool_args)
+        else:
+            raise ValueError(f"Unknown tool: {tool_name}")
+
+        duration = time.perf_counter() - start_time
+        logger.info(f"[TIMING] Completed tool: {tool_name} in {duration:.3f}s")
+        return result
+    except Exception as e:
+        duration = time.perf_counter() - start_time
+        logger.error(f"[TIMING] Failed tool: {tool_name} after {duration:.3f}s - {type(e).__name__}: {e}")
+        raise
