@@ -268,37 +268,49 @@ async def get_minor_league_stats(player_id: int, level: str, season: int) -> dic
     return {"player_id": player_id, "level": level, "season": season, "stats": stats}
 
 
-async def get_player_progression(player_name: str) -> dict[str, Any]:
+async def get_player_progression(player_id: int) -> dict[str, Any]:
     """Track minor → major league career progression.
 
+    Fetches player info to determine draft year and MLB debut, then searches
+    for minor league stats across all levels during that timeframe.
+
     Args:
-        player_name: Player's full name
+        player_id: MLB Advanced Media player ID (from lookup_player)
 
     Returns:
-        Dictionary with progression data from minor to major leagues
+        Dictionary with progression data including draft year, debut date, and all minor league stats
     """
-    # First lookup the player to get their ID
-    lookup_result = await lookup_player(player_name)
+    import datetime
 
-    if lookup_result["status"] == "not_found":
-        return {"error": f"Player '{player_name}' not found"}
+    import requests
 
-    progression: dict[str, Any] = {"player_name": player_name, "mlb_stats": [], "minor_league_stats": []}
+    # Get player info to find draft year and MLB debut
+    url = f"https://statsapi.mlb.com/api/v1/people/{player_id}"
+    response = await asyncio.to_thread(requests.get, url)
+    person_data = response.json().get("people", [{}])[0]
 
-    # Get MLB career stats if available
-    if lookup_result["mlb_results"]:
-        mlb_career = await get_player_career_stats(player_name, "batting", "all")
-        progression["mlb_stats"] = mlb_career
+    draft_year = person_data.get("draftYear")
+    mlb_debut = person_data.get("mlbDebutDate")
 
-    # Get minor league stats if player ID available
-    if lookup_result["minor_results"]:
-        player_id = lookup_result["minor_results"][0].get("id")
-        if player_id:
-            # Try to get stats from each level
-            for level in ["Rookie", "A", "High-A", "AA", "AAA"]:
-                level_stats = await get_minor_league_stats(player_id, level, 2024)
-                if "error" not in level_stats:
-                    progression["minor_league_stats"].append(level_stats)
+    # Determine search range
+    current_year = datetime.datetime.now().year
+    start_year = draft_year if draft_year else current_year - 10
+    end_year = int(mlb_debut[:4]) if mlb_debut else current_year
+
+    progression: dict[str, Any] = {
+        "player_id": player_id,
+        "draft_year": draft_year,
+        "mlb_debut": mlb_debut,
+        "minor_league_stats": [],
+    }
+
+    # Search only the relevant years (draft → debut)
+    for year in range(start_year, end_year + 1):
+        for level in ["Rookie", "A", "High-A", "AA", "AAA"]:
+            level_stats = await get_minor_league_stats(player_id, level, year)
+            # Only add if we got actual stats (not just an error or empty result)
+            if "error" not in level_stats and level_stats.get("stats"):
+                progression["minor_league_stats"].append(level_stats)
 
     return progression
 
@@ -943,11 +955,15 @@ def get_tool_definitions() -> list[dict[str, Any]]:
         {
             "type": "function",
             "name": "get_player_progression",
-            "description": "Track minor to major league career progression for a player.",
+            "description": (
+                "Track minor to major league career progression for a player. Use after lookup_player to get player_id."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"player_name": {"type": "string", "description": "Player's full name"}},
-                "required": ["player_name"],
+                "properties": {
+                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"}
+                },
+                "required": ["player_id"],
             },
         },
         {
