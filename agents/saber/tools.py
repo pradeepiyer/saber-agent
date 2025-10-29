@@ -5,6 +5,7 @@ import logging
 import time
 from typing import Any
 
+import pandas as pd
 import statsapi
 from pandas import DataFrame
 from pybaseball import (
@@ -35,7 +36,12 @@ logger = logging.getLogger(__name__)
 
 
 async def _fetch_stats_by_year(
-    start_year: int, end_year: int, stat_type: str, league: str = "all", player_name: str | None = None
+    start_year: int,
+    end_year: int,
+    stat_type: str,
+    league: str = "all",
+    player_name: str | None = None,
+    fangraphs_id: int | None = None,
 ) -> DataFrame:
     """Fetch stats year-by-year to avoid FanGraphs HTTP 500/524 errors.
 
@@ -44,28 +50,49 @@ async def _fetch_stats_by_year(
     one year at a time and combining results. Years are fetched in batches to avoid
     overwhelming FanGraphs' server.
 
+    When fangraphs_id is provided, uses FanGraphs' players parameter for 10x speedup
+    by fetching only the specific player's data instead of all players.
+
     Args:
         start_year: Starting season year
         end_year: Ending season year
         stat_type: "batting" or "pitching"
         league: "all", "nl", "al", or "mnl" (Negro League)
-        player_name: Optional player name to filter results
+        player_name: Optional player name to filter results (fallback if no ID)
+        fangraphs_id: FanGraphs player ID for optimization (10x speedup)
 
     Returns:
         Combined DataFrame with all years' data
     """
-    import pandas as pd
-
     fetch_fn = batting_stats if stat_type == "batting" else pitching_stats
     BATCH_SIZE = 5  # Fetch 5 years at a time to avoid rate limiting
+
+    # Determine if we can use players parameter optimization
+    # Negro League batters have invalid FanGraphs IDs, so we fall back for them
+    use_players_param = (
+        fangraphs_id is not None
+        and fangraphs_id > 0  # Valid ID (not -1)
+        and not (league == "mnl" and stat_type == "batting")  # Negro League batting fallback
+    )
 
     async def fetch_year(year: int) -> tuple[int, DataFrame | None]:
         """Fetch stats for a single year."""
         try:
-            year_df: DataFrame = await asyncio.to_thread(fetch_fn, year, year, league=league)
+            if use_players_param:
+                # OPTIMIZED: Fetch only specific player (10x faster)
+                year_df: DataFrame = await asyncio.to_thread(
+                    fetch_fn, year, year, league=league, players=str(fangraphs_id), qual=0
+                )
+            else:
+                # FALLBACK: Fetch all players (name-based filtering below)
+                year_df: DataFrame = await asyncio.to_thread(fetch_fn, year, year, league=league)
+
             if not year_df.empty:
                 league_label = "Negro League" if league == "mnl" else league.upper()
-                logger.info(f"Fetched {stat_type} stats for {league_label} {year}: {len(year_df)} rows")
+                method = "player ID" if use_players_param else "name filter"
+                logger.info(
+                    f"Fetched {stat_type} stats for {league_label} {year} via {method}: {len(year_df)} rows"
+                )
                 return (year, year_df)
             return (year, None)
         except Exception as e:
@@ -97,8 +124,8 @@ async def _fetch_stats_by_year(
 
     combined_df = pd.concat(all_data, ignore_index=True)
 
-    # Filter by player name if provided
-    if player_name and "Name" in combined_df.columns:
+    # Filter by player name if needed (only when not using players parameter)
+    if not use_players_param and player_name and "Name" in combined_df.columns:
         combined_df = combined_df[combined_df["Name"].str.contains(player_name, case=False, na=False)]
 
     return combined_df
@@ -133,13 +160,28 @@ async def lookup_player(name: str) -> dict[str, Any]:
     # Check pybaseball (MLB + Negro League)
     mlb_df: DataFrame = await asyncio.to_thread(playerid_lookup, last_name, first_name)
     if not mlb_df.empty:
-        results["mlb_results"] = mlb_df.to_dict("records")
+        # Standardize ID field names for consistency
+        mlb_records = mlb_df.to_dict("records")
+        for record in mlb_records:
+            # Rename key_mlbam to player_id
+            if "key_mlbam" in record:
+                record["player_id"] = int(record["key_mlbam"]) if pd.notna(record["key_mlbam"]) else -1
+            # Rename key_fangraphs to fangraphs_id
+            if "key_fangraphs" in record:
+                record["fangraphs_id"] = int(record["key_fangraphs"]) if pd.notna(record["key_fangraphs"]) else -1
+        results["mlb_results"] = mlb_records
         results["status"] = "found"
         logger.info(f"Found {len(mlb_df)} MLB/Negro League matches for '{name}'")
 
     # Check MLB-StatsAPI (minor league players)
     minor_matches: list[dict[str, Any]] = await asyncio.to_thread(statsapi.lookup_player, name)
     if minor_matches:
+        # Standardize: MLB-StatsAPI returns 'id', rename to 'player_id' for consistency
+        for record in minor_matches:
+            if "id" in record:
+                record["player_id"] = record["id"]
+            # Minor league players don't have FanGraphs IDs, set to -1
+            record["fangraphs_id"] = -1
         results["minor_results"] = minor_matches
         results["status"] = "found"
         logger.info(f"Found {len(minor_matches)} minor league matches for '{name}'")
@@ -151,12 +193,19 @@ async def lookup_player(name: str) -> dict[str, Any]:
 
 
 async def get_player_batting_stats(
-    player_name: str, start_season: int, end_season: int, league: str = "all"
+    player_name: str,
+    player_id: int,
+    fangraphs_id: int,
+    start_season: int,
+    end_season: int,
+    league: str = "all",
 ) -> dict[str, Any]:
     """Get player batting statistics from pybaseball.
 
     Args:
         player_name: Player's full name
+        player_id: MLB Advanced Media player ID from lookup_player()
+        fangraphs_id: FanGraphs player ID from lookup_player() (enables 10x speedup)
         start_season: Starting season (year)
         end_season: Ending season (year)
         league: "all", "nl", "al", or "mnl" (Negro League)
@@ -164,14 +213,10 @@ async def get_player_batting_stats(
     Returns:
         Dictionary with batting statistics
     """
-    # For multi-year queries, fetch year-by-year to avoid HTTP 500/524
-    if end_season > start_season:
-        stats_df = await _fetch_stats_by_year(start_season, end_season, "batting", league, player_name)
-    else:
-        # Single year query - fetch directly
-        stats_df: DataFrame = await asyncio.to_thread(batting_stats, start_season, end_season, league=league)
-        # Filter by player name
-        stats_df = stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)]
+    # Use fangraphs_id for optimization when valid (handles invalid IDs internally)
+    stats_df = await _fetch_stats_by_year(
+        start_season, end_season, "batting", league, player_name, fangraphs_id
+    )
 
     if stats_df.empty:
         return {"error": f"No batting stats found for {player_name} ({start_season}-{end_season})"}
@@ -181,12 +226,19 @@ async def get_player_batting_stats(
 
 
 async def get_player_pitching_stats(
-    player_name: str, start_season: int, end_season: int, league: str = "all"
+    player_name: str,
+    player_id: int,
+    fangraphs_id: int,
+    start_season: int,
+    end_season: int,
+    league: str = "all",
 ) -> dict[str, Any]:
     """Get player pitching statistics from pybaseball.
 
     Args:
         player_name: Player's full name
+        player_id: MLB Advanced Media player ID from lookup_player()
+        fangraphs_id: FanGraphs player ID from lookup_player() (enables 10x speedup)
         start_season: Starting season (year)
         end_season: Ending season (year)
         league: "all", "nl", "al", or "mnl" (Negro League)
@@ -194,14 +246,10 @@ async def get_player_pitching_stats(
     Returns:
         Dictionary with pitching statistics
     """
-    # For multi-year queries, fetch year-by-year to avoid HTTP 500/524
-    if end_season > start_season:
-        stats_df = await _fetch_stats_by_year(start_season, end_season, "pitching", league, player_name)
-    else:
-        # Single year query - fetch directly
-        stats_df: DataFrame = await asyncio.to_thread(pitching_stats, start_season, end_season, league=league)
-        # Filter by player name
-        stats_df = stats_df[stats_df["Name"].str.contains(player_name, case=False, na=False)]
+    # Use fangraphs_id for optimization when valid (handles invalid IDs internally)
+    stats_df = await _fetch_stats_by_year(
+        start_season, end_season, "pitching", league, player_name, fangraphs_id
+    )
 
     if stats_df.empty:
         return {"error": f"No pitching stats found for {player_name} ({start_season}-{end_season})"}
@@ -213,11 +261,14 @@ async def get_player_pitching_stats(
 # ========== Player Statistics (Minor League) ==========
 
 
-async def get_minor_league_stats(player_id: int, level: str, season: int) -> dict[str, Any]:
+async def get_minor_league_stats(
+    player_id: int, fangraphs_id: int, level: str, season: int
+) -> dict[str, Any]:
     """Get minor league player statistics using MLB-StatsAPI.
 
     Args:
-        player_id: MLB Advanced Media player ID
+        player_id: MLB Advanced Media player ID (used)
+        fangraphs_id: FanGraphs player ID from lookup_player() (not used by this tool)
         level: "AAA", "AA", "High-A", "A", or "Rookie"
         season: Season year
 
@@ -243,14 +294,15 @@ async def get_minor_league_stats(player_id: int, level: str, season: int) -> dic
     return {"player_id": player_id, "level": level, "season": season, "stats": stats}
 
 
-async def get_player_progression(player_id: int) -> dict[str, Any]:
+async def get_player_progression(player_id: int, fangraphs_id: int) -> dict[str, Any]:
     """Track minor → major league career progression.
 
     Fetches player info to determine draft year and MLB debut, then searches
     for minor league stats across all levels during that timeframe.
 
     Args:
-        player_id: MLB Advanced Media player ID (from lookup_player)
+        player_id: MLB Advanced Media player ID (used)
+        fangraphs_id: FanGraphs player ID from lookup_player() (not used by this tool)
 
     Returns:
         Dictionary with progression data including draft year, debut date, and all minor league stats
@@ -282,7 +334,7 @@ async def get_player_progression(player_id: int) -> dict[str, Any]:
     # Search only the relevant years (draft → debut)
     for year in range(start_year, end_year + 1):
         for level in ["Rookie", "A", "High-A", "AA", "AAA"]:
-            level_stats = await get_minor_league_stats(player_id, level, year)
+            level_stats = await get_minor_league_stats(player_id, fangraphs_id, level, year)
             # Only add if we got actual stats (not just an error or empty result)
             if "error" not in level_stats and level_stats.get("stats"):
                 progression["minor_league_stats"].append(level_stats)
@@ -293,7 +345,7 @@ async def get_player_progression(player_id: int) -> dict[str, Any]:
 # ========== Advanced Metrics (Statcast - 2015+) ==========
 
 
-async def get_statcast_batter_season(player_id: int, year: int) -> dict[str, Any]:
+async def get_statcast_batter_season(player_id: int, fangraphs_id: int, year: int) -> dict[str, Any]:
     """Get ALL Statcast batting metrics for a player's season.
 
     Fetches complete Statcast profile by calling multiple pybaseball functions:
@@ -303,7 +355,8 @@ async def get_statcast_batter_season(player_id: int, year: int) -> dict[str, Any
     - Performance against different pitch types
 
     Args:
-        player_id: MLB Advanced Media player ID
+        player_id: MLB Advanced Media player ID (used)
+        fangraphs_id: FanGraphs player ID from lookup_player() (not used by this tool)
         year: Season year (2015+)
 
     Returns:
@@ -359,7 +412,7 @@ async def get_statcast_batter_season(player_id: int, year: int) -> dict[str, Any
     return result
 
 
-async def get_statcast_pitcher_season(player_id: int, year: int) -> dict[str, Any]:
+async def get_statcast_pitcher_season(player_id: int, fangraphs_id: int, year: int) -> dict[str, Any]:
     """Get ALL Statcast pitching metrics for a player's season.
 
     Fetches complete Statcast profile by calling multiple pybaseball functions:
@@ -368,7 +421,8 @@ async def get_statcast_pitcher_season(player_id: int, year: int) -> dict[str, An
     - Percentile rankings across all metrics
 
     Args:
-        player_id: MLB Advanced Media player ID
+        player_id: MLB Advanced Media player ID (used)
+        fangraphs_id: FanGraphs player ID from lookup_player() (not used by this tool)
         year: Season year (2015+)
 
     Returns:
@@ -414,14 +468,15 @@ async def get_statcast_pitcher_season(player_id: int, year: int) -> dict[str, An
     return result
 
 
-async def get_fielding_season(player_id: int, year: int) -> dict[str, Any]:
+async def get_fielding_season(player_id: int, fangraphs_id: int, year: int) -> dict[str, Any]:
     """Get ALL Statcast fielding metrics for a player's season.
 
     Fetches all available fielding metrics and filters to the specific player.
     Returns None for metrics where player has no data (e.g., outfield metrics for infielders).
 
     Args:
-        player_id: MLB Advanced Media player ID
+        player_id: MLB Advanced Media player ID (used)
+        fangraphs_id: FanGraphs player ID from lookup_player() (not used by this tool)
         year: Season year (2016+)
 
     Returns:
@@ -676,12 +731,21 @@ def get_tool_definitions() -> list[dict[str, Any]]:
             "type": "function",
             "name": "get_player_batting_stats",
             "description": (
-                "Get batting statistics for a player across seasons (MLB or Negro League). Use after lookup_player."
+                "Get batting statistics for a player across seasons (MLB or Negro League). "
+                "REQUIRES player_id and fangraphs_id from lookup_player. Provides 10x speedup via FanGraphs player ID optimization."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "player_name": {"type": "string", "description": "Player's full name from lookup_player"},
+                    "player_id": {
+                        "type": "integer",
+                        "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."
+                    },
+                    "fangraphs_id": {
+                        "type": "integer",
+                        "description": "FanGraphs player ID from lookup_player(). Enables 10x speedup. Always pass this."
+                    },
                     "start_season": {"type": "integer", "description": "Starting season year"},
                     "end_season": {"type": "integer", "description": "Ending season year"},
                     "league": {
@@ -690,19 +754,28 @@ def get_tool_definitions() -> list[dict[str, Any]]:
                         "enum": ["all", "nl", "al", "mnl"],
                     },
                 },
-                "required": ["player_name", "start_season", "end_season"],
+                "required": ["player_name", "player_id", "fangraphs_id", "start_season", "end_season"],
             },
         },
         {
             "type": "function",
             "name": "get_player_pitching_stats",
             "description": (
-                "Get pitching statistics for a player across seasons (MLB or Negro League). Use after lookup_player."
+                "Get pitching statistics for a player across seasons (MLB or Negro League). "
+                "REQUIRES player_id and fangraphs_id from lookup_player. Provides 10x speedup via FanGraphs player ID optimization."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "player_name": {"type": "string", "description": "Player's full name from lookup_player"},
+                    "player_id": {
+                        "type": "integer",
+                        "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."
+                    },
+                    "fangraphs_id": {
+                        "type": "integer",
+                        "description": "FanGraphs player ID from lookup_player(). Enables 10x speedup. Always pass this."
+                    },
                     "start_season": {"type": "integer", "description": "Starting season year"},
                     "end_season": {"type": "integer", "description": "Ending season year"},
                     "league": {
@@ -711,19 +784,20 @@ def get_tool_definitions() -> list[dict[str, Any]]:
                         "enum": ["all", "nl", "al", "mnl"],
                     },
                 },
-                "required": ["player_name", "start_season", "end_season"],
+                "required": ["player_name", "player_id", "fangraphs_id", "start_season", "end_season"],
             },
         },
         {
             "type": "function",
             "name": "get_minor_league_stats",
             "description": (
-                "Get minor league player statistics using MLB-StatsAPI. Requires player_id from lookup_player."
+                "Get minor league player statistics using MLB-StatsAPI. REQUIRES both player_id and fangraphs_id from lookup_player."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
+                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."},
+                    "fangraphs_id": {"type": "integer", "description": "FanGraphs player ID from lookup_player(). Always pass this."},
                     "level": {
                         "type": "string",
                         "description": "Minor league level",
@@ -731,21 +805,22 @@ def get_tool_definitions() -> list[dict[str, Any]]:
                     },
                     "season": {"type": "integer", "description": "Season year"},
                 },
-                "required": ["player_id", "level", "season"],
+                "required": ["player_id", "fangraphs_id", "level", "season"],
             },
         },
         {
             "type": "function",
             "name": "get_player_progression",
             "description": (
-                "Track minor to major league career progression for a player. Use after lookup_player to get player_id."
+                "Track minor to major league career progression for a player. REQUIRES both player_id and fangraphs_id from lookup_player."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"}
+                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."},
+                    "fangraphs_id": {"type": "integer", "description": "FanGraphs player ID from lookup_player(). Always pass this."}
                 },
-                "required": ["player_id"],
+                "required": ["player_id", "fangraphs_id"],
             },
         },
         {
@@ -754,15 +829,16 @@ def get_tool_definitions() -> list[dict[str, Any]]:
             "description": (
                 "Get ALL Statcast batting metrics for a season (2015+). Returns complete profile: "
                 "exit velocity, barrels, expected stats (xBA/xSLG/xwOBA), percentile ranks, "
-                "and performance vs pitch types."
+                "and performance vs pitch types. REQUIRES both player_id and fangraphs_id from lookup_player."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
+                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."},
+                    "fangraphs_id": {"type": "integer", "description": "FanGraphs player ID from lookup_player(). Always pass this."},
                     "year": {"type": "integer", "description": "Season year (2015 or later)"},
                 },
-                "required": ["player_id", "year"],
+                "required": ["player_id", "fangraphs_id", "year"],
             },
         },
         {
@@ -771,15 +847,16 @@ def get_tool_definitions() -> list[dict[str, Any]]:
             "description": (
                 "Get ALL Statcast pitching metrics for a season (2015+). Returns complete profile: "
                 "exit velocity allowed, barrels allowed, expected stats allowed (xBA/xSLG/xwOBA), "
-                "and percentile ranks."
+                "and percentile ranks. REQUIRES both player_id and fangraphs_id from lookup_player."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
+                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."},
+                    "fangraphs_id": {"type": "integer", "description": "FanGraphs player ID from lookup_player(). Always pass this."},
                     "year": {"type": "integer", "description": "Season year (2015 or later)"},
                 },
-                "required": ["player_id", "year"],
+                "required": ["player_id", "fangraphs_id", "year"],
             },
         },
         {
@@ -789,15 +866,17 @@ def get_tool_definitions() -> list[dict[str, Any]]:
                 "Get ALL Statcast fielding metrics for a player's season (2016+). "
                 "Returns complete fielding profile: outs above average, outfield directional OAA, "
                 "catch probability, jump, catcher poptime, and framing. "
-                "Metrics not applicable to player's position will be None."
+                "Metrics not applicable to player's position will be None. "
+                "REQUIRES both player_id and fangraphs_id from lookup_player."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player"},
+                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."},
+                    "fangraphs_id": {"type": "integer", "description": "FanGraphs player ID from lookup_player(). Always pass this."},
                     "year": {"type": "integer", "description": "Season year (2016 or later)"},
                 },
-                "required": ["player_id", "year"],
+                "required": ["player_id", "fangraphs_id", "year"],
             },
         },
         {

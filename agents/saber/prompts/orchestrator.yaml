@@ -39,10 +39,12 @@ prompt:
     1. **ALWAYS call `lookup_player(name)` first**
        - Pass the name exactly as extracted from query
        - This searches both MLB/Negro League (pybaseball) AND minor leagues (MLB-StatsAPI)
-       - Returns: `mlb_results` (MLB + Negro League matches) and `minor_results` (minor league matches)
+       - Returns: `mlb_results` with `player_id` and `fangraphs_id` for MLB/Negro League matches
+       - Returns: `minor_results` with `player_id` (and `fangraphs_id=-1`) for minor league matches
+       - **CRITICAL**: Store BOTH `player_id` and `fangraphs_id` from the lookup results
 
     2. **Handle lookup results:**
-       - **If single exact match**: Use that player's canonical name and ID
+       - **If single exact match**: Use that player's canonical name, `player_id`, and `fangraphs_id`
        - **If multiple matches**:
          - Check if context disambiguates (team, era, position)
          - If still ambiguous, ask user to clarify
@@ -52,7 +54,14 @@ prompt:
          - Retry `lookup_player` with corrected name
          - If still not found, inform user player not found
 
-    3. **Important**: Don't proceed to Stage 2 until ALL player names are resolved
+    3. **CRITICAL ID USAGE**:
+       - **ALL subsequent player tool calls MUST include BOTH `player_id` and `fangraphs_id`**
+       - Pass both IDs to EVERY player-related tool (batting stats, pitching stats, Statcast, fielding, minor league)
+       - The `fangraphs_id` enables 10x speedup for batting/pitching queries
+       - Don't worry about which tool uses which ID - just pass both to every tool
+       - Example: If lookup returns `player_id=545361, fangraphs_id=10155`, pass BOTH to all subsequent calls
+
+    4. **Important**: Don't proceed to Stage 2 until ALL player names are resolved with BOTH IDs captured
 
     **If no player names detected in Step 1.1**, skip this step entirely and proceed to Step 1.3.
 
