@@ -90,9 +90,7 @@ async def _fetch_stats_by_year(
             if not year_df.empty:
                 league_label = "Negro League" if league == "mnl" else league.upper()
                 method = "player ID" if use_players_param else "name filter"
-                logger.info(
-                    f"Fetched {stat_type} stats for {league_label} {year} via {method}: {len(year_df)} rows"
-                )
+                logger.info(f"Fetched {stat_type} stats for {league_label} {year} via {method}: {len(year_df)} rows")
                 return (year, year_df)
             return (year, None)
         except Exception as e:
@@ -126,7 +124,7 @@ async def _fetch_stats_by_year(
 
     # Filter by player name if needed (only when not using players parameter)
     if not use_players_param and player_name and "Name" in combined_df.columns:
-        combined_df = combined_df[combined_df["Name"].str.contains(player_name, case=False, na=False)]
+        combined_df = combined_df.loc[combined_df["Name"].str.contains(player_name, case=False, na=False)]
 
     return combined_df
 
@@ -214,9 +212,7 @@ async def get_player_batting_stats(
         Dictionary with batting statistics
     """
     # Use fangraphs_id for optimization when valid (handles invalid IDs internally)
-    stats_df = await _fetch_stats_by_year(
-        start_season, end_season, "batting", league, player_name, fangraphs_id
-    )
+    stats_df = await _fetch_stats_by_year(start_season, end_season, "batting", league, player_name, fangraphs_id)
 
     if stats_df.empty:
         return {"error": f"No batting stats found for {player_name} ({start_season}-{end_season})"}
@@ -247,9 +243,7 @@ async def get_player_pitching_stats(
         Dictionary with pitching statistics
     """
     # Use fangraphs_id for optimization when valid (handles invalid IDs internally)
-    stats_df = await _fetch_stats_by_year(
-        start_season, end_season, "pitching", league, player_name, fangraphs_id
-    )
+    stats_df = await _fetch_stats_by_year(start_season, end_season, "pitching", league, player_name, fangraphs_id)
 
     if stats_df.empty:
         return {"error": f"No pitching stats found for {player_name} ({start_season}-{end_season})"}
@@ -261,9 +255,7 @@ async def get_player_pitching_stats(
 # ========== Player Statistics (Minor League) ==========
 
 
-async def get_minor_league_stats(
-    player_id: int, fangraphs_id: int, level: str, season: int
-) -> dict[str, Any]:
+async def get_minor_league_stats(player_id: int, fangraphs_id: int, level: str, season: int) -> dict[str, Any]:
     """Get minor league player statistics using MLB-StatsAPI.
 
     Args:
@@ -368,7 +360,7 @@ async def get_statcast_batter_season(player_id: int, fangraphs_id: int, year: in
     try:
         exitvelo_df: DataFrame = await asyncio.to_thread(statcast_batter_exitvelo_barrels, year, 25)
         if "player_id" in exitvelo_df.columns:
-            player_exitvelo = exitvelo_df[exitvelo_df["player_id"] == player_id]
+            player_exitvelo = exitvelo_df.loc[exitvelo_df["player_id"] == player_id]
             if not player_exitvelo.empty:
                 result["exitvelo_barrels"] = player_exitvelo.to_dict("records")[0]
     except Exception:
@@ -378,7 +370,7 @@ async def get_statcast_batter_season(player_id: int, fangraphs_id: int, year: in
     try:
         expected_df: DataFrame = await asyncio.to_thread(statcast_batter_expected_stats, year, 25)
         if "player_id" in expected_df.columns:
-            player_expected = expected_df[expected_df["player_id"] == player_id]
+            player_expected = expected_df.loc[expected_df["player_id"] == player_id]
             if not player_expected.empty:
                 result["expected_stats"] = player_expected.to_dict("records")[0]
     except Exception:
@@ -388,7 +380,7 @@ async def get_statcast_batter_season(player_id: int, fangraphs_id: int, year: in
     try:
         percentile_df: DataFrame = await asyncio.to_thread(statcast_batter_percentile_ranks, year)
         if "player_id" in percentile_df.columns:
-            player_percentile = percentile_df[percentile_df["player_id"] == player_id]
+            player_percentile = percentile_df.loc[percentile_df["player_id"] == player_id]
             if not player_percentile.empty:
                 result["percentile_ranks"] = player_percentile.to_dict("records")[0]
     except Exception:
@@ -398,7 +390,7 @@ async def get_statcast_batter_season(player_id: int, fangraphs_id: int, year: in
     try:
         arsenal_df: DataFrame = await asyncio.to_thread(statcast_batter_pitch_arsenal, year, 25)
         if "player_id" in arsenal_df.columns:
-            player_arsenal = arsenal_df[arsenal_df["player_id"] == player_id]
+            player_arsenal = arsenal_df.loc[arsenal_df["player_id"] == player_id]
             if not player_arsenal.empty:
                 result["pitch_arsenal"] = player_arsenal.to_dict("records")
     except Exception:
@@ -434,7 +426,7 @@ async def get_statcast_pitcher_season(player_id: int, fangraphs_id: int, year: i
     try:
         exitvelo_df: DataFrame = await asyncio.to_thread(statcast_pitcher_exitvelo_barrels, year, 25)
         if "player_id" in exitvelo_df.columns:
-            player_exitvelo = exitvelo_df[exitvelo_df["player_id"] == player_id]
+            player_exitvelo = exitvelo_df.loc[exitvelo_df["player_id"] == player_id]
             if not player_exitvelo.empty:
                 result["exitvelo_barrels"] = player_exitvelo.to_dict("records")[0]
     except Exception:
@@ -444,7 +436,7 @@ async def get_statcast_pitcher_season(player_id: int, fangraphs_id: int, year: i
     try:
         expected_df: DataFrame = await asyncio.to_thread(statcast_pitcher_expected_stats, year, 25)
         if "player_id" in expected_df.columns:
-            player_expected = expected_df[expected_df["player_id"] == player_id]
+            player_expected = expected_df.loc[expected_df["player_id"] == player_id]
             if not player_expected.empty:
                 result["expected_stats"] = player_expected.to_dict("records")[0]
     except Exception:
@@ -454,7 +446,7 @@ async def get_statcast_pitcher_season(player_id: int, fangraphs_id: int, year: i
     try:
         percentile_df: DataFrame = await asyncio.to_thread(statcast_pitcher_percentile_ranks, year)
         if "player_id" in percentile_df.columns:
-            player_percentile = percentile_df[percentile_df["player_id"] == player_id]
+            player_percentile = percentile_df.loc[percentile_df["player_id"] == player_id]
             if not player_percentile.empty:
                 result["percentile_ranks"] = player_percentile.to_dict("records")[0]
     except Exception:
@@ -488,7 +480,7 @@ async def get_fielding_season(player_id: int, fangraphs_id: int, year: int) -> d
     try:
         oaa_df: DataFrame = await asyncio.to_thread(statcast_outs_above_average, year, "all", "q")
         if "player_id" in oaa_df.columns:
-            player_oaa = oaa_df[oaa_df["player_id"] == player_id]
+            player_oaa = oaa_df.loc[oaa_df["player_id"] == player_id]
             if not player_oaa.empty:
                 result["outs_above_average"] = player_oaa.to_dict("records")[0]
     except Exception:
@@ -498,7 +490,7 @@ async def get_fielding_season(player_id: int, fangraphs_id: int, year: int) -> d
     try:
         directional_df: DataFrame = await asyncio.to_thread(statcast_outfield_directional_oaa, year, "q")
         if "player_id" in directional_df.columns:
-            player_directional = directional_df[directional_df["player_id"] == player_id]
+            player_directional = directional_df.loc[directional_df["player_id"] == player_id]
             if not player_directional.empty:
                 result["outfield_directional"] = player_directional.to_dict("records")[0]
     except Exception:
@@ -508,7 +500,7 @@ async def get_fielding_season(player_id: int, fangraphs_id: int, year: int) -> d
     try:
         catch_prob_df: DataFrame = await asyncio.to_thread(statcast_outfield_catch_prob, year, "q")
         if "player_id" in catch_prob_df.columns:
-            player_catch_prob = catch_prob_df[catch_prob_df["player_id"] == player_id]
+            player_catch_prob = catch_prob_df.loc[catch_prob_df["player_id"] == player_id]
             if not player_catch_prob.empty:
                 result["catch_probability"] = player_catch_prob.to_dict("records")[0]
     except Exception:
@@ -518,7 +510,7 @@ async def get_fielding_season(player_id: int, fangraphs_id: int, year: int) -> d
     try:
         jump_df: DataFrame = await asyncio.to_thread(statcast_outfielder_jump, year, "q")
         if "player_id" in jump_df.columns:
-            player_jump = jump_df[jump_df["player_id"] == player_id]
+            player_jump = jump_df.loc[jump_df["player_id"] == player_id]
             if not player_jump.empty:
                 result["outfielder_jump"] = player_jump.to_dict("records")[0]
     except Exception:
@@ -528,7 +520,7 @@ async def get_fielding_season(player_id: int, fangraphs_id: int, year: int) -> d
     try:
         poptime_df: DataFrame = await asyncio.to_thread(statcast_catcher_poptime, year, min_2b_att=5, min_3b_att=0)
         if "player_id" in poptime_df.columns:
-            player_poptime = poptime_df[poptime_df["player_id"] == player_id]
+            player_poptime = poptime_df.loc[poptime_df["player_id"] == player_id]
             if not player_poptime.empty:
                 result["catcher_poptime"] = player_poptime.to_dict("records")[0]
     except Exception:
@@ -538,7 +530,7 @@ async def get_fielding_season(player_id: int, fangraphs_id: int, year: int) -> d
     try:
         framing_df: DataFrame = await asyncio.to_thread(statcast_catcher_framing, year, "q")
         if "player_id" in framing_df.columns:
-            player_framing = framing_df[framing_df["player_id"] == player_id]
+            player_framing = framing_df.loc[framing_df["player_id"] == player_id]
             if not player_framing.empty:
                 result["catcher_framing"] = player_framing.to_dict("records")[0]
     except Exception:
@@ -606,7 +598,7 @@ async def get_team_stats(team_abbr: str, season: int, stat_type: str = "batting"
 
     # Filter by team if Team column exists
     if "Team" in stats_df.columns:
-        team_stats = stats_df[stats_df["Team"].str.contains(team_abbr, case=False, na=False)]
+        team_stats = stats_df.loc[stats_df["Team"].str.contains(team_abbr, case=False, na=False)]
         return {"team": team_abbr, "season": season, "type": stat_type, "stats": team_stats.to_dict("records")}
     else:
         return {"error": "Team information not available in stats data"}
@@ -732,7 +724,8 @@ def get_tool_definitions() -> list[dict[str, Any]]:
             "name": "get_player_batting_stats",
             "description": (
                 "Get batting statistics for a player across seasons (MLB or Negro League). "
-                "REQUIRES player_id and fangraphs_id from lookup_player. Provides 10x speedup via FanGraphs player ID optimization."
+                "REQUIRES player_id and fangraphs_id from lookup_player. "
+                "Provides 10x speedup via FanGraphs player ID optimization."
             ),
             "parameters": {
                 "type": "object",
@@ -740,11 +733,13 @@ def get_tool_definitions() -> list[dict[str, Any]]:
                     "player_name": {"type": "string", "description": "Player's full name from lookup_player"},
                     "player_id": {
                         "type": "integer",
-                        "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."
+                        "description": ("MLB Advanced Media player ID from lookup_player(). Always pass this."),
                     },
                     "fangraphs_id": {
                         "type": "integer",
-                        "description": "FanGraphs player ID from lookup_player(). Enables 10x speedup. Always pass this."
+                        "description": (
+                            "FanGraphs player ID from lookup_player(). Enables 10x speedup. Always pass this."
+                        ),
                     },
                     "start_season": {"type": "integer", "description": "Starting season year"},
                     "end_season": {"type": "integer", "description": "Ending season year"},
@@ -762,7 +757,8 @@ def get_tool_definitions() -> list[dict[str, Any]]:
             "name": "get_player_pitching_stats",
             "description": (
                 "Get pitching statistics for a player across seasons (MLB or Negro League). "
-                "REQUIRES player_id and fangraphs_id from lookup_player. Provides 10x speedup via FanGraphs player ID optimization."
+                "REQUIRES player_id and fangraphs_id from lookup_player. "
+                "Provides 10x speedup via FanGraphs player ID optimization."
             ),
             "parameters": {
                 "type": "object",
@@ -770,11 +766,13 @@ def get_tool_definitions() -> list[dict[str, Any]]:
                     "player_name": {"type": "string", "description": "Player's full name from lookup_player"},
                     "player_id": {
                         "type": "integer",
-                        "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."
+                        "description": ("MLB Advanced Media player ID from lookup_player(). Always pass this."),
                     },
                     "fangraphs_id": {
                         "type": "integer",
-                        "description": "FanGraphs player ID from lookup_player(). Enables 10x speedup. Always pass this."
+                        "description": (
+                            "FanGraphs player ID from lookup_player(). Enables 10x speedup. Always pass this."
+                        ),
                     },
                     "start_season": {"type": "integer", "description": "Starting season year"},
                     "end_season": {"type": "integer", "description": "Ending season year"},
@@ -791,13 +789,20 @@ def get_tool_definitions() -> list[dict[str, Any]]:
             "type": "function",
             "name": "get_minor_league_stats",
             "description": (
-                "Get minor league player statistics using MLB-StatsAPI. REQUIRES both player_id and fangraphs_id from lookup_player."
+                "Get minor league player statistics using MLB-StatsAPI. "
+                "REQUIRES both player_id and fangraphs_id from lookup_player."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."},
-                    "fangraphs_id": {"type": "integer", "description": "FanGraphs player ID from lookup_player(). Always pass this."},
+                    "player_id": {
+                        "type": "integer",
+                        "description": "MLB Advanced Media player ID from lookup_player(). Always pass this.",
+                    },
+                    "fangraphs_id": {
+                        "type": "integer",
+                        "description": "FanGraphs player ID from lookup_player(). Always pass this.",
+                    },
                     "level": {
                         "type": "string",
                         "description": "Minor league level",
@@ -812,13 +817,20 @@ def get_tool_definitions() -> list[dict[str, Any]]:
             "type": "function",
             "name": "get_player_progression",
             "description": (
-                "Track minor to major league career progression for a player. REQUIRES both player_id and fangraphs_id from lookup_player."
+                "Track minor to major league career progression for a player. "
+                "REQUIRES both player_id and fangraphs_id from lookup_player."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."},
-                    "fangraphs_id": {"type": "integer", "description": "FanGraphs player ID from lookup_player(). Always pass this."}
+                    "player_id": {
+                        "type": "integer",
+                        "description": "MLB Advanced Media player ID from lookup_player(). Always pass this.",
+                    },
+                    "fangraphs_id": {
+                        "type": "integer",
+                        "description": "FanGraphs player ID from lookup_player(). Always pass this.",
+                    },
                 },
                 "required": ["player_id", "fangraphs_id"],
             },
@@ -827,15 +839,22 @@ def get_tool_definitions() -> list[dict[str, Any]]:
             "type": "function",
             "name": "get_statcast_batter_season",
             "description": (
-                "Get ALL Statcast batting metrics for a season (2015+). Returns complete profile: "
-                "exit velocity, barrels, expected stats (xBA/xSLG/xwOBA), percentile ranks, "
-                "and performance vs pitch types. REQUIRES both player_id and fangraphs_id from lookup_player."
+                "Get ALL Statcast batting metrics for a season (2015+). "
+                "Returns complete profile: exit velocity, barrels, expected stats (xBA/xSLG/xwOBA), "
+                "percentile ranks, and performance vs pitch types. "
+                "REQUIRES both player_id and fangraphs_id from lookup_player."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."},
-                    "fangraphs_id": {"type": "integer", "description": "FanGraphs player ID from lookup_player(). Always pass this."},
+                    "player_id": {
+                        "type": "integer",
+                        "description": ("MLB Advanced Media player ID from lookup_player(). Always pass this."),
+                    },
+                    "fangraphs_id": {
+                        "type": "integer",
+                        "description": ("FanGraphs player ID from lookup_player(). Always pass this."),
+                    },
                     "year": {"type": "integer", "description": "Season year (2015 or later)"},
                 },
                 "required": ["player_id", "fangraphs_id", "year"],
@@ -845,15 +864,22 @@ def get_tool_definitions() -> list[dict[str, Any]]:
             "type": "function",
             "name": "get_statcast_pitcher_season",
             "description": (
-                "Get ALL Statcast pitching metrics for a season (2015+). Returns complete profile: "
-                "exit velocity allowed, barrels allowed, expected stats allowed (xBA/xSLG/xwOBA), "
-                "and percentile ranks. REQUIRES both player_id and fangraphs_id from lookup_player."
+                "Get ALL Statcast pitching metrics for a season (2015+). "
+                "Returns complete profile: exit velocity allowed, barrels allowed, "
+                "expected stats allowed (xBA/xSLG/xwOBA), and percentile ranks. "
+                "REQUIRES both player_id and fangraphs_id from lookup_player."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."},
-                    "fangraphs_id": {"type": "integer", "description": "FanGraphs player ID from lookup_player(). Always pass this."},
+                    "player_id": {
+                        "type": "integer",
+                        "description": ("MLB Advanced Media player ID from lookup_player(). Always pass this."),
+                    },
+                    "fangraphs_id": {
+                        "type": "integer",
+                        "description": ("FanGraphs player ID from lookup_player(). Always pass this."),
+                    },
                     "year": {"type": "integer", "description": "Season year (2015 or later)"},
                 },
                 "required": ["player_id", "fangraphs_id", "year"],
@@ -872,8 +898,14 @@ def get_tool_definitions() -> list[dict[str, Any]]:
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "player_id": {"type": "integer", "description": "MLB Advanced Media player ID from lookup_player(). Always pass this."},
-                    "fangraphs_id": {"type": "integer", "description": "FanGraphs player ID from lookup_player(). Always pass this."},
+                    "player_id": {
+                        "type": "integer",
+                        "description": ("MLB Advanced Media player ID from lookup_player(). Always pass this."),
+                    },
+                    "fangraphs_id": {
+                        "type": "integer",
+                        "description": ("FanGraphs player ID from lookup_player(). Always pass this."),
+                    },
                     "year": {"type": "integer", "description": "Season year (2016 or later)"},
                 },
                 "required": ["player_id", "fangraphs_id", "year"],
