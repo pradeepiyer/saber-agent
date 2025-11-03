@@ -43,15 +43,7 @@ async def _fetch_stats_by_year(
     player_name: str | None = None,
     fangraphs_id: int | None = None,
 ) -> DataFrame:
-    """Fetch stats year-by-year to avoid FanGraphs HTTP 500/524 errors.
-
-    FanGraphs returns HTTP 500/524 when querying data across wide date ranges,
-    especially for historical players. This function works around that by fetching
-    one year at a time and combining results. Years are fetched in batches to avoid
-    overwhelming FanGraphs' server.
-
-    When fangraphs_id is provided, uses FanGraphs' players parameter for 10x speedup
-    by fetching only the specific player's data instead of all players.
+    """Fetch stats year-by-year to avoid timeouts on large date ranges.
 
     Args:
         start_year: Starting season year
@@ -79,7 +71,6 @@ async def _fetch_stats_by_year(
         """Fetch stats for a single year."""
         try:
             if use_players_param:
-                # OPTIMIZED: Fetch only specific player (10x faster)
                 year_df: DataFrame = await asyncio.to_thread(
                     fetch_fn, year, year, league=league, players=str(fangraphs_id), qual=0
                 )
